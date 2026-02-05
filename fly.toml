@@ -1,0 +1,44 @@
+# Fly.io configuration for Church Media Automation
+app = "church-media-automation"
+primary_region = "ams"
+
+[build]
+
+[http_service]
+  internal_port = 3000
+  force_https = true
+  auto_stop_machines = false
+  auto_start_machines = true
+  min_machines_running = 1
+  processes = ["app"]
+
+  [http_service.concurrency]
+    type = "requests"
+    hard_limit = 250
+    soft_limit = 200
+
+[[vm]]
+  size = "shared-cpu-2x"
+  memory = "1gb"
+  processes = ["app"]
+
+[[vm]]
+  size = "shared-cpu-2x"
+  memory = "2gb"
+  processes = ["worker"]
+
+# API Server Process
+[processes]
+  app = "node dist/server.js"
+  worker = "node dist/jobs/workers/processVideo.worker.js"
+
+# Environment variables (secrets - set with: fly secrets set KEY=VALUE)
+[env]
+  PORT = "3000"
+  NODE_ENV = "production"
+
+# Volume for temporary files (optional - uses ephemeral disk by default)
+# [[mounts]]
+#   source = "temp_storage"
+#   destination = "/tmp"
+#   processes = ["worker"]
