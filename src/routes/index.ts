@@ -9,6 +9,7 @@ import { healthRouter } from "./health.js";
 import { websubRouter } from "./websub.js";
 import { agentsRouter } from "./agents.js";
 import { rssRouter } from "./rss.js";
+import { statsRouter } from "./stats.js";
 
 export const router = Router();
 
@@ -17,5 +18,6 @@ router.use(healthRouter);
 router.use(websubRouter);
 router.use("/agents", agentsRouter);
 router.use(rssRouter);
+router.use(statsRouter);
 // router.use("/episodes", episodesRouter);  // Coming soon
 // router.use("/jobs", jobsRouter);          // Coming soon

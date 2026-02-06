@@ -7,15 +7,7 @@ import { Request, Response, NextFunction } from "express";
 import { supabase } from "../config/supabase.js";
 import { AppError } from "../utils/errors.js";
 
-// Extend Express Request to include user
-declare global {
-  namespace Express {
-    interface Request {
-      userId?: string;
-      userEmail?: string;
-    }
-  }
-}
+// User type is extended in src/types/express.d.ts
 
 /**
  * Middleware to verify Supabase JWT token and extract user
@@ -45,8 +37,10 @@ export async function requireAuth(
     }
 
     // Attach user info to request
-    req.userId = user.id;
-    req.userEmail = user.email;
+    req.user = {
+      id: user.id,
+      email: user.email || '',
+    };
 
     next();
   } catch (error) {
