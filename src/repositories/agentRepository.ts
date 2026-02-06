@@ -7,6 +7,7 @@ import { supabase } from "../config/supabase.js";
 
 export interface Agent {
   id: string;
+  user_id: string | null; // Supabase auth user ID
   name: string; // Church name
   youtube_channel_id: string;
   youtube_channel_url: string | null;
@@ -29,6 +30,7 @@ export interface Agent {
 }
 
 export interface CreateAgentInput {
+  user_id: string; // Supabase auth user ID
   name: string; // Church name
   youtube_channel_id: string;
   youtube_channel_url?: string;
@@ -79,6 +81,7 @@ export async function createAgent(input: CreateAgentInput): Promise<Agent> {
   const { data, error } = await supabase
     .from("agents")
     .insert({
+      user_id: input.user_id,
       name: input.name,
       youtube_channel_id: input.youtube_channel_id,
       youtube_channel_url: input.youtube_channel_url || null,
@@ -115,6 +118,23 @@ export async function findById(id: string): Promise<Agent | null> {
   }
 
   return data || null;
+}
+
+/**
+ * Finds all agents for a specific user.
+ */
+export async function findByUserId(userId: string): Promise<Agent[]> {
+  const { data, error } = await supabase
+    .from("agents")
+    .select()
+    .eq("user_id", userId)
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    throw new Error(`Failed to find user agents: ${error.message}`);
+  }
+
+  return data || [];
 }
 
 /**

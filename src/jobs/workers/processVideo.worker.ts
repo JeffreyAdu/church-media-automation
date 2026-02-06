@@ -1,5 +1,6 @@
 /**
  * Process Video Worker (BullMQ)
+ * Handles both video processing and backfill scan jobs
  */
 
 import "dotenv/config";
@@ -7,6 +8,7 @@ import { Worker } from "bullmq";
 import { redis } from "../../config/redis.js";
 import { processVideoOrchestrator } from "../orchestrators/processVideoOrchestrator.js";
 import { findVideoByYouTubeId } from "../../repositories/videoRepository.js";
+import { processBackfillJob } from "../../services/business/backfillJobService.js";
 
 const queueName = "processVideo";
 
@@ -16,38 +18,56 @@ interface ProcessVideoJobData {
   youtubeUrl: string;
 }
 
-async function processVideoJob(job: { data: ProcessVideoJobData; id?: string | number }) {
-  const { agentId, youtubeVideoId, youtubeUrl } = job.data;
+interface BackfillScanJobData {
+  jobId: string;
+  agentId: string;
+}
 
-  console.log("[worker] processing", { agentId, youtubeVideoId, youtubeUrl });
+async function handleJob(job: any) {
+  // Determine job type based on name or data structure
+  if (job.name === "backfill-scan" || (job.data.jobId && !job.data.youtubeVideoId)) {
+    // Backfill scan job
+    const { jobId, agentId } = job.data as BackfillScanJobData;
+    console.log("[worker:backfill] processing", { jobId, agentId });
 
-  try {
-    // Find video record
-    const video = await findVideoByYouTubeId(agentId, youtubeVideoId);
-    if (!video) {
-      throw new Error(`Video not found: ${youtubeVideoId}`);
+    try {
+      await processBackfillJob(jobId);
+      console.log("[worker:backfill] ✓ completed", job.id, "for backfill job:", jobId);
+    } catch (error) {
+      console.error("[worker:backfill] ✗ failed", job.id, error);
+      throw error;
     }
+  } else {
+    // Video processing job
+    const { agentId, youtubeVideoId, youtubeUrl } = job.data as ProcessVideoJobData;
+    console.log("[worker:video] processing", { agentId, youtubeVideoId, youtubeUrl });
 
-    // Process through orchestrator
-    const result = await processVideoOrchestrator({
-      agentId,
-      videoId: video.id,
-      youtubeVideoId,
-      youtubeUrl,
-    });
+    try {
+      const video = await findVideoByYouTubeId(agentId, youtubeVideoId);
+      if (!video) {
+        throw new Error(`Video not found: ${youtubeVideoId}`);
+      }
 
-    console.log("[worker] ✓ completed", job.id, "episode:", result.episodeId);
-  } catch (error) {
-    console.error("[worker] ✗ failed", job.id, error);
-    throw error;
+      const result = await processVideoOrchestrator({
+        agentId,
+        videoId: video.id,
+        youtubeVideoId,
+        youtubeUrl,
+      });
+
+      console.log("[worker:video] ✓ completed", job.id, "episode:", result.episodeId);
+    } catch (error) {
+      console.error("[worker:video] ✗ failed", job.id, error);
+      throw error;
+    }
   }
 }
 
-const worker = new Worker(queueName, processVideoJob, {
+const worker = new Worker(queueName, handleJob, {
   connection: redis,
   concurrency: 2,
-  lockDuration: 1800000, // 30 minutes - balance between long videos and stall detection
-  lockRenewTime: 60000, // Renew lock every 60 seconds to prevent stalling
+  lockDuration: 1800000, // 30 minutes
+  lockRenewTime: 60000,
 });
 
 console.log("[worker] Starting worker for queue:", queueName);

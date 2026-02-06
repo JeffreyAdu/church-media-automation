@@ -12,7 +12,7 @@ import { supabase, MEDIA_BUCKET } from "./supabase.js";
 async function ensureBucket(bucketName: string, isPublic = false): Promise<void> {
   const { data: buckets } = await supabase.storage.listBuckets();
 
-  const exists = buckets?.some((bucket) => bucket.name === bucketName);
+  const exists = buckets?.some((bucket: { name: string }) => bucket.name === bucketName);
 
   if (!exists) {
     const { error } = await supabase.storage.createBucket(bucketName, {

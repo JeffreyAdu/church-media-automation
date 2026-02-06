@@ -21,59 +21,66 @@ import {
   getFeedUrl,
 } from "../controllers/agentController.js";
 import { getRssFeed } from "../controllers/rssController.js";
-import { backfillAgent } from "../controllers/backfillController.js";
+import { backfillAgent, getBackfillJobStatus, getAgentBackfillJobs } from "../controllers/backfillController.js";
 import { validateBody } from "../middlewares/validation.js";
 import { createAgentSchema, updateAgentSchema } from "../middlewares/schemas/agentSchemas.js";
 import { backfillSchema } from "../middlewares/schemas/backfillSchema.js";
 import { strictLimiter } from "../middlewares/rateLimiting.js";
 import { upload, uploadImage } from "../middlewares/upload.js";
+import { requireAuth, optionalAuth } from "../middlewares/auth.middleware.js";
 
 export const agentsRouter = Router();
 
-/** List all agents */
-agentsRouter.get("/", listAgents);
+/** List all agents (user-specific) */
+agentsRouter.get("/", requireAuth, listAgents);
 
-/** Create new agent */
-agentsRouter.post("/", strictLimiter, validateBody(createAgentSchema), createAgent);
+/** Create new agent (user-specific) */
+agentsRouter.post("/", requireAuth, strictLimiter, validateBody(createAgentSchema), createAgent);
 
-/** Get specific agent */
-agentsRouter.get("/:id", getAgentById);
+/** Get specific agent (user-specific) */
+agentsRouter.get("/:id", requireAuth, getAgentById);
 
-/** Update agent */
-agentsRouter.put("/:id", validateBody(updateAgentSchema), updateAgent);
+/** Update agent (user-specific) */
+agentsRouter.put("/:id", requireAuth, validateBody(updateAgentSchema), updateAgent);
 
-/** Delete agent */
-agentsRouter.delete("/:id", strictLimiter, deleteAgent);
+/** Delete agent (user-specific) */
+agentsRouter.delete("/:id", requireAuth, strictLimiter, deleteAgent);
 
-/** Backfill videos from a specific date */
-agentsRouter.post("/:id/backfill", strictLimiter, validateBody(backfillSchema), backfillAgent);
+/** Create backfill job (user-specific) */
+agentsRouter.post("/:id/backfill", requireAuth, strictLimiter, validateBody(backfillSchema), backfillAgent);
+
+/** Get backfill job status (user-specific) */
+agentsRouter.get("/:id/backfill/:jobId", requireAuth, getBackfillJobStatus);
+
+/** Get recent backfill jobs for agent (user-specific) */
+agentsRouter.get("/:id/backfill", requireAuth, getAgentBackfillJobs);
 
 /** Manually (re-)activate agent's WebSub subscription */
-agentsRouter.post("/:id/activate", strictLimiter, activateAgent);
+agentsRouter.post("/:id/activate", requireAuth, strictLimiter, activateAgent);
 
 /** Upload intro audio */
-agentsRouter.post("/:id/intro", strictLimiter, upload.single("audio"), uploadIntro);
+agentsRouter.post("/:id/intro", requireAuth, strictLimiter, upload.single("audio"), uploadIntro);
 
 /** Upload outro audio */
-agentsRouter.post("/:id/outro", strictLimiter, upload.single("audio"), uploadOutro);
+agentsRouter.post("/:id/outro", requireAuth, strictLimiter, upload.single("audio"), uploadOutro);
 
 /** Delete intro audio */
-agentsRouter.delete("/:id/intro", strictLimiter, deleteIntro);
+agentsRouter.delete("/:id/intro", requireAuth, strictLimiter, deleteIntro);
 
 /** Delete outro audio */
-agentsRouter.delete("/:id/outro", strictLimiter, deleteOutro);
+agentsRouter.delete("/:id/outro", requireAuth, strictLimiter, deleteOutro);
 
 /** Upload artwork (1400x1400-3000x3000 for Spotify) */
-agentsRouter.post("/:id/artwork", strictLimiter, uploadImage.single("image"), uploadArtwork);
+agentsRouter.post("/:id/artwork", requireAuth, strictLimiter, uploadImage.single("image"), uploadArtwork);
 
 /** Delete artwork */
-agentsRouter.delete("/:id/artwork", strictLimiter, deleteArtwork);
+agentsRouter.delete("/:id/artwork", requireAuth, strictLimiter, deleteArtwork);
 
 /** Get all episodes for an agent */
-agentsRouter.get("/:id/episodes", getEpisodes);
+agentsRouter.get("/:id/episodes", requireAuth, getEpisodes);
 
 /** Get RSS feed URL for Spotify/Apple submission */
-agentsRouter.get("/:id/feed-url", getFeedUrl);
+agentsRouter.get("/:id/feed-url", requireAuth, getFeedUrl);
 
-/** RSS feed for podcast platforms */
+/** RSS feed for podcast platforms (public - no auth) */
 agentsRouter.get("/:id/feed.xml", getRssFeed);

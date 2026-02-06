@@ -18,6 +18,7 @@ export interface RssFeedConfig {
   ownerEmail: string;
   imageUrl: string | null;
   category: string;
+  subcategory: string;
 }
 
 /**
@@ -34,9 +35,11 @@ export function buildRssFeed(config: RssFeedConfig, episodes: Episode[]): string
       const guid = escapeXml(ep.guid);
       const pubDate = formatRssDate(ep.published_at);
       const duration = ep.duration_seconds ? formatDuration(ep.duration_seconds) : "00:00:00";
+      const episodeLink = escapeXml(`${config.link}/episodes/${ep.guid}`);
 
       return RSS_ITEM_TEMPLATE
         .replace("{{TITLE}}", title)
+        .replace("{{LINK}}", episodeLink)
         .replace("{{DESCRIPTION}}", description)
         .replace("{{AUDIO_URL}}", audioUrl)
         .replace("{{AUDIO_SIZE}}", ep.audio_size_bytes.toString())
@@ -53,6 +56,9 @@ export function buildRssFeed(config: RssFeedConfig, episodes: Episode[]): string
         .replace("{{LINK}}", escapeXml(config.link))
     : "";
 
+  // Use imageUrl if available, otherwise use a default/placeholder
+  const itunesImageUrl = config.imageUrl || `${config.link}/default-artwork.jpg`;
+
   return RSS_FEED_TEMPLATE
     .replace("{{TITLE}}", escapeXml(config.title))
     .replace("{{LINK}}", escapeXml(config.link))
@@ -62,8 +68,10 @@ export function buildRssFeed(config: RssFeedConfig, episodes: Episode[]): string
     .replace("{{AUTHOR}}", escapeXml(config.author))
     .replace("{{OWNER_NAME}}", escapeXml(config.ownerName))
     .replace("{{OWNER_EMAIL}}", escapeXml(config.ownerEmail))
+    .replace("{{ITUNES_IMAGE_URL}}", escapeXml(itunesImageUrl))
     .replace("{{IMAGE_TAG}}", imageTag)
     .replace("{{CATEGORY}}", escapeXml(config.category))
+    .replace("{{SUBCATEGORY}}", escapeXml(config.subcategory))
     .replace("{{ITEMS}}", items);
 }
 
@@ -82,5 +90,6 @@ export function buildConfigFromAgent(agent: Agent, baseUrl: string): RssFeedConf
     ownerEmail: process.env.PODCAST_OWNER_EMAIL || "podcast@example.com",
     imageUrl: agent.podcast_artwork_url, // Podcast cover art (1400x1400-3000x3000 for Spotify)
     category: "Religion & Spirituality",
+    subcategory: "Christianity",
   };
 }

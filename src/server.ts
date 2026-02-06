@@ -20,8 +20,8 @@ let isReady = false;
  * Starts the HTTP server immediately.
  * Initialization runs in parallel without blocking server startup.
  */
-server.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+server.listen(PORT, "0.0.0.0", () => {
+  console.log(`Server running on 0.0.0.0:${PORT}`);
   
   // Run initialization after server starts
   initializeApp()

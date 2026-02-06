@@ -18,8 +18,11 @@ export const RSS_FEED_TEMPLATE = `<?xml version="1.0" encoding="UTF-8"?>
       <itunes:name>{{OWNER_NAME}}</itunes:name>
       <itunes:email>{{OWNER_EMAIL}}</itunes:email>
     </itunes:owner>
+    <itunes:image href="{{ITUNES_IMAGE_URL}}"/>
 {{IMAGE_TAG}}
-    <itunes:category text="{{CATEGORY}}"/>
+    <itunes:category text="{{CATEGORY}}">
+      <itunes:category text="{{SUBCATEGORY}}"/>
+    </itunes:category>
     <itunes:explicit>false</itunes:explicit>
 {{ITEMS}}
   </channel>
@@ -27,6 +30,7 @@ export const RSS_FEED_TEMPLATE = `<?xml version="1.0" encoding="UTF-8"?>
 
 export const RSS_ITEM_TEMPLATE = `    <item>
       <title>{{TITLE}}</title>
+      <link>{{LINK}}</link>
       <description>{{DESCRIPTION}}</description>
       <enclosure url="{{AUDIO_URL}}" length="{{AUDIO_SIZE}}" type="audio/mpeg"/>
       <guid isPermaLink="false">{{GUID}}</guid>

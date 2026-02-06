@@ -4,7 +4,7 @@
  */
 
 import { Request, Response, NextFunction } from "express";
-import { getAgentById } from "../services/business/agentService.js";
+import { findById } from "../repositories/agentRepository.js";
 import { getPublishedEpisodes } from "../services/business/episodeService.js";
 import { buildRssFeed, buildConfigFromAgent } from "../services/business/rssFeedService.js";
 import { NotFoundError } from "../utils/errors.js";
@@ -20,8 +20,8 @@ export async function getRssFeed(
   try {
     const { id } = req.params;
 
-    // Fetch agent
-    const agent = await getAgentById(id);
+    // Fetch agent (no auth required for public RSS feed)
+    const agent = await findById(id);
     if (!agent) {
       throw new NotFoundError("Agent", id);
     }

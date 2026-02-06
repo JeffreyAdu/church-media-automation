@@ -27,8 +27,9 @@ import { NotFoundError } from "../utils/errors.js";
  */
 export async function createAgent(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
+    const userId = req.userId!; // Set by requireAuth middleware
     const callbackUrl = buildCallbackUrl();
-    const agent = await createAgentService(req.body, callbackUrl);
+    const agent = await createAgentService({ ...req.body, user_id: userId }, callbackUrl);
     res.status(201).json(agent);
   } catch (error) {
     next(error);
@@ -36,12 +37,13 @@ export async function createAgent(req: Request, res: Response, next: NextFunctio
 }
 
 /**
- * GET /agents/:id - Gets an agent by ID
+ * GET /agents/:id - Gets an agent by ID (user must own it)
  */
 export async function getAgentById(req: Request<{ id: string }>, res: Response, next: NextFunction): Promise<void> {
   try {
     const { id } = req.params;
-    const agent = await getAgent(id);
+    const userId = req.userId!;
+    const agent = await getAgent(id, userId);
     if (!agent) {
       throw new NotFoundError("Agent", id);
     }
@@ -52,11 +54,12 @@ export async function getAgentById(req: Request<{ id: string }>, res: Response, 
 }
 
 /**
- * GET /agents - Lists all agents
+ * GET /agents - Lists all agents for authenticated user
  */
 export async function listAgents(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    const agents = await listAgentsService();
+    const userId = req.userId!; // Set by requireAuth middleware
+    const agents = await listAgentsService(userId);
     res.json(agents);
   } catch (error) {
     next(error);
@@ -224,9 +227,10 @@ export async function getEpisodes(req: Request<{ id: string }>, res: Response, n
 export async function getFeedUrl(req: Request<{ id: string }>, res: Response, next: NextFunction): Promise<void> {
   try {
     const { id } = req.params;
+    const userId = req.userId!;
     
-    // Verify agent exists
-    const agent = await getAgent(id);
+    // Verify agent exists and user owns it
+    const agent = await getAgent(id, userId);
     if (!agent) {
       throw new NotFoundError("Agent", id);
     }

@@ -11,6 +11,7 @@ import {
   createAgent as createAgentRepo,
   findById,
   findAll,
+  findByUserId,
   updateAgent as updateAgentRepo,
   deleteAgent as deleteAgentRepo,
   type Agent,
@@ -20,12 +21,17 @@ import {
 import { findEpisodesByAgentId, type Episode } from "../../repositories/episodeRepository.js";
 import { NotFoundError } from "../../utils/errors.js";
 import { resolveChannelId } from "../external/youtube.js";
+import { processPodcastArtwork } from "../../utils/imageProcessing.js";
 
 /**
- * Gets an agent by ID.
+ * Gets an agent by ID (verifies user ownership).
  */
-export async function getAgentById(agentId: string): Promise<Agent | null> {
-  return await findById(agentId);
+export async function getAgent(agentId: string, userId: string): Promise<Agent | null> {
+  const agent = await findById(agentId);
+  if (agent && agent.user_id !== userId) {
+    return null; // User doesn't own this agent
+  }
+  return agent;
 }
 
 /**
@@ -74,13 +80,6 @@ export async function createAgent(
 }
 
 /**
- * Gets an agent by ID.
- */
-export async function getAgent(id: string): Promise<Agent | null> {
-  return await findById(id);
-}
-
-/**
  * Gets all episodes for an agent.
  */
 export async function getEpisodes(agentId: string): Promise<Episode[]> {
@@ -94,8 +93,11 @@ export async function getEpisodes(agentId: string): Promise<Episode[]> {
 /**
  * Lists all agents.
  */
-export async function listAgents(): Promise<Agent[]> {
-  return await findAll();
+/**
+ * Lists all agents for a specific user.
+ */
+export async function listAgents(userId: string): Promise<Agent[]> {
+  return await findByUserId(userId);
 }
 
 /**
@@ -313,12 +315,16 @@ export async function deleteOutro(agentId: string): Promise<void> {
 /**
  * Uploads artwork for an agent.
  * Spotify requires 1400x1400 to 3000x3000 pixels.
+ * Automatically validates, crops to square, and resizes if needed.
  */
 export async function uploadArtwork(agentId: string, buffer: Buffer): Promise<string> {
   const agent = await findById(agentId);
   if (!agent) {
     throw new NotFoundError("Agent", agentId);
   }
+
+  // Process artwork: validate, crop to square, resize to meet requirements
+  const processedBuffer = await processPodcastArtwork(buffer);
 
   // Delete old artwork if exists
   if (agent.podcast_artwork_url) {
@@ -328,7 +334,7 @@ export async function uploadArtwork(agentId: string, buffer: Buffer): Promise<st
 
   // Upload new artwork
   const storagePath = StoragePaths.artwork(agentId);
-  const upload = await uploadFileFromBuffer(buffer, storagePath, "image/jpeg");
+  const upload = await uploadFileFromBuffer(processedBuffer, storagePath, "image/jpeg");
 
   // Update agent record with new URL
   await updateAgentRepo(agentId, {

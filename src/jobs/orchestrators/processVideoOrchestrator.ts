@@ -13,7 +13,7 @@ import { runSermonAiStage } from "../../services/business/sermonPipeline.js";
 import { createEpisode } from "../../services/business/episodeService.js";
 import { createSegmentation } from "../../services/business/segmentationService.js";
 import { getVideoById } from "../../services/business/videoService.js";
-import { getAgentById } from "../../services/business/agentService.js";
+import { findById } from "../../repositories/agentRepository.js";
 import { unlink } from "fs/promises";
 
 export interface ProcessVideoInput {
@@ -109,7 +109,7 @@ export async function processVideoOrchestrator(input: ProcessVideoInput): Promis
   console.log(`[orchestrator] building final episode with intro/outro`);
   
   // Get agent record to fetch intro/outro URLs
-  const agent = await getAgentById(agentId);
+  const agent = await findById(agentId);
   if (!agent) {
     throw new Error(`Agent not found: ${agentId}`);
   }
