@@ -71,8 +71,10 @@ export async function optionalAuth(
       } = await supabase.auth.getUser(token);
 
       if (user) {
-        req.userId = user.id;
-        req.userEmail = user.email;
+        req.user = {
+          id: user.id,
+          email: user.email || '',
+        };
       }
     }
 

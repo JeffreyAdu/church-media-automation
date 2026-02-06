@@ -27,7 +27,7 @@ import { NotFoundError } from "../utils/errors.js";
  */
 export async function createAgent(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    const userId = req.userId!; // Set by requireAuth middleware
+    const userId = req.user!.id; // Set by requireAuth middleware
     const callbackUrl = buildCallbackUrl();
     const agent = await createAgentService({ ...req.body, user_id: userId }, callbackUrl);
     res.status(201).json(agent);
@@ -42,7 +42,7 @@ export async function createAgent(req: Request, res: Response, next: NextFunctio
 export async function getAgentById(req: Request<{ id: string }>, res: Response, next: NextFunction): Promise<void> {
   try {
     const { id } = req.params;
-    const userId = req.userId!;
+    const userId = req.user!.id;
     const agent = await getAgent(id, userId);
     if (!agent) {
       throw new NotFoundError("Agent", id);
@@ -58,7 +58,7 @@ export async function getAgentById(req: Request<{ id: string }>, res: Response, 
  */
 export async function listAgents(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    const userId = req.userId!; // Set by requireAuth middleware
+    const userId = req.user!.id; // Set by requireAuth middleware
     const agents = await listAgentsService(userId);
     res.json(agents);
   } catch (error) {
@@ -227,7 +227,7 @@ export async function getEpisodes(req: Request<{ id: string }>, res: Response, n
 export async function getFeedUrl(req: Request<{ id: string }>, res: Response, next: NextFunction): Promise<void> {
   try {
     const { id } = req.params;
-    const userId = req.userId!;
+    const userId = req.user!.id;
     
     // Verify agent exists and user owns it
     const agent = await getAgent(id, userId);
