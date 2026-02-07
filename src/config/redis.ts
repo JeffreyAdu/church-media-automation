@@ -10,9 +10,9 @@ export const redis = new IORedis(REDIS_URL, {
   maxRetriesPerRequest: null,
   enableReadyCheck: false,
   
-  // Connection timeouts
+  // Connection timeout
   connectTimeout: 10000, // 10s
-  commandTimeout: 5000,  // 5s
+  // Note: No commandTimeout - Upstash has higher latency
   
   // Retry strategy
   retryStrategy: (times: number) => {
