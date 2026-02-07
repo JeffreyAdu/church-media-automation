@@ -1,5 +1,5 @@
 /**
- * Redis client for BullMQ - Optimized for Fly.io Redis
+ * Redis client for BullMQ - Fly.io Redis (Upstash)
  */
 
 import IORedis from "ioredis";
@@ -10,23 +10,17 @@ export const redis = new IORedis(REDIS_URL, {
   maxRetriesPerRequest: null,
   enableReadyCheck: false,
   
-  // Fly.io Redis timeouts
+  // Connection timeouts
   connectTimeout: 10000, // 10s
   commandTimeout: 5000,  // 5s
   
-  // Upstash requires TLS
-  tls: {
-    rejectUnauthorized: true,
-  },
-  
-  // Retry strategy for connection issues
+  // Retry strategy
   retryStrategy: (times: number) => {
     if (times > 10) {
       console.error(`[Redis] Failed to connect after ${times} attempts`);
-      return null; // Stop retrying
+      return null;
     }
-    const delay = Math.min(times * 500, 2000);
-    return delay;
+    return Math.min(times * 500, 2000);
   },
 });
 
