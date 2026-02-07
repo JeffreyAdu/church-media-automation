@@ -14,8 +14,8 @@ export const app = express();
 /** Disable the X-Powered-By header to reduce fingerprinting. */
 app.disable("x-powered-by");
 
-/** Trust Fly.io proxy for rate limiting and client IP detection. */
-app.set("trust proxy", true);
+/** Trust only the first proxy (Fly.io) for rate limiting and client IP detection. */
+app.set("trust proxy", 1);
 
 /** Adds standard security headers. */
 app.use(helmet());
