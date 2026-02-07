@@ -10,9 +10,14 @@ export const redis = new IORedis(REDIS_URL, {
   maxRetriesPerRequest: null,
   enableReadyCheck: false,
   
-  // Fly.io Redis works great with reasonable timeouts
+  // Fly.io Redis timeouts
   connectTimeout: 10000, // 10s
   commandTimeout: 5000,  // 5s
+  
+  // Upstash requires TLS
+  tls: {
+    rejectUnauthorized: true,
+  },
   
   // Retry strategy for connection issues
   retryStrategy: (times: number) => {
