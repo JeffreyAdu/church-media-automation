@@ -60,23 +60,40 @@ export async function getJobStatus(jobId: string): Promise<BackfillJobWithProgre
   }
 
   // Fetch active video jobs from BullMQ to get progress info
-  const activeJobs = await queues.processVideo.getJobs(["active", "waiting"]);
-  const activeVideos = await Promise.all(
-    activeJobs
-      .filter((j) => j.data.agentId === job.agent_id)
-      .map(async (j) => {
-        const progress = (j.progress as any) || {};
-        return {
-          videoId: j.data.youtubeVideoId,
-          progress: progress.progress || 0,
-          status: progress.status || "Pending...",
-        };
-      })
-  );
+  // Use timeout to prevent hanging requests
+  let activeVideos: Array<{ videoId: string; progress: number; status: string }> | undefined;
+  
+  try {
+    const activeJobs = await Promise.race([
+      queues.processVideo.getJobs(["active", "waiting"]),
+      new Promise<never>((_, reject) => 
+        setTimeout(() => reject(new Error("BullMQ getJobs timeout")), 5000)
+      )
+    ]);
+    
+    activeVideos = await Promise.all(
+      activeJobs
+        .filter((j) => j.data?.agentId === job.agent_id && j.data?.youtubeVideoId)
+        .map(async (j) => {
+          const progress = (j.progress as any) || {};
+          return {
+            videoId: j.data.youtubeVideoId,
+            progress: progress.progress || 0,
+            status: progress.status || "Pending...",
+          };
+        })
+    );
+    
+    activeVideos = activeVideos.length > 0 ? activeVideos : undefined;
+  } catch (error) {
+    // Log but don't fail - return job status without active videos
+    console.error(`[backfillJob] Failed to fetch active videos for job ${jobId}:`, error);
+    activeVideos = undefined;
+  }
 
   return {
     ...job,
-    activeVideos: activeVideos.length > 0 ? activeVideos : undefined,
+    activeVideos,
   };
 }
 
