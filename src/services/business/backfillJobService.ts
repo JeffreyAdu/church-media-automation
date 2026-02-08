@@ -165,7 +165,7 @@ export async function processBackfillJob(jobId: string): Promise<void> {
             agentId: agent.id,
             youtubeVideoId: video.youtube_video_id,
             youtubeUrl: video.youtube_url,
-            title: video.title, // Include title for UI display
+            title: video.title ?? undefined, // Include title for UI display (convert null to undefined)
           });
 
           if (enqueueResult.enqueued) {
