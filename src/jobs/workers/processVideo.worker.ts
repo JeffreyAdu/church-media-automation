@@ -79,14 +79,14 @@ async function handleJob(job: any) {
 
 const worker = new Worker(queueName, handleJob, {
   connection: redis,
-  concurrency: 2,
+  concurrency: 3, // Allow backfill-scan + 2 video jobs
   lockDuration: 1800000, // 30 minutes
   lockRenewTime: 60000,
 });
 
 console.log("[worker] Starting worker for queue:", queueName);
 console.log("[worker] Redis connection:", redis.options.host, redis.options.port);
-console.log("[worker] Concurrency:", 2);
+console.log("[worker] Concurrency:", 3);
 console.log("[worker] Lock duration:", "30 minutes");
 console.log("[worker] Waiting for jobs...");
 
