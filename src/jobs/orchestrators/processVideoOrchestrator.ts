@@ -42,50 +42,70 @@ export async function processVideoOrchestrator(input: ProcessVideoInput): Promis
   await updateProgress?.(5, "Downloading audio from YouTube...");
   const download = await downloadVideo(youtubeUrl, youtubeVideoId);
 
-  // 2. Convert to WAV for VAD analysis
-  console.log(`[orchestrator] converting to WAV for VAD`);
-  await updateProgress?.(15, "Converting to WAV format...");
-  const wavPath = await convertToWav(download.audioPath, `${youtubeVideoId}.wav`);
-
-  // 3. Run VAD to detect speech segments
-  console.log(`[orchestrator] running voice activity detection`);
-  await updateProgress?.(25, "Detecting speech segments...");
-  const speechSegments = await detectSpeech(wavPath);
+  // 2. Check if video is too long for VAD (CPU bottleneck)
+  const LONG_VIDEO_THRESHOLD_SEC = 30 * 60; // 30 minutes
+  const skipVAD = download.durationSeconds > LONG_VIDEO_THRESHOLD_SEC;
   
-  // 4. Build merged timeline mapping and find longest segment
-  let mergedPosition = 0;
-  const segmentMapping = speechSegments.map((seg) => {
-    const mapped = {
-      originalStartSec: seg.startSec,
-      originalEndSec: seg.endSec,
-      mergedStartSec: mergedPosition,
-      mergedEndSec: mergedPosition + seg.durationSec,
-      durationSec: seg.durationSec,
-    };
-    mergedPosition += seg.durationSec;
-    return mapped;
-  });
+  let totalSpeechSec: number;
+  let speechSegments: any[] = [];
+  let segmentMapping: any[] = [];
+  let longestInMerged: any = null;
+  let speechRatio = 0;
+  let vadFailed = false;
+  let wavPath: string | null = null;
 
-  const longestInMerged = segmentMapping.length > 0
-    ? segmentMapping.reduce((longest, current) =>
-        current.durationSec > longest.durationSec ? current : longest
-      )
-    : null;
+  if (skipVAD) {
+    console.log(`[vad] ⏭️ SKIPPING VAD: Video is ${(download.durationSeconds/60).toFixed(1)}min (>${LONG_VIDEO_THRESHOLD_SEC/60}min threshold)`);
+    console.log(`[vad] 🔄 Using full audio for transcription (VAD is CPU-bottleneck on long videos)`);
+    totalSpeechSec = download.durationSeconds;
+    vadFailed = true; // Treat as VAD bypass
+    await updateProgress?.(25, "Skipping VAD (long video)...");
+  } else {
+    // 3. Convert to WAV for VAD analysis
+    console.log(`[orchestrator] converting to WAV for VAD`);
+    await updateProgress?.(15, "Converting to WAV format...");
+    wavPath = await convertToWav(download.audioPath, `${youtubeVideoId}.wav`);
 
-  const totalSpeechSec = mergedPosition;
-  const speechRatio = download.durationSeconds > 0 ? totalSpeechSec / download.durationSeconds : 0;
-  
-  console.log(`[vad] 🎤 Detected ${speechSegments.length} speech segments`);
-  console.log(`[vad] 📊 Total speech: ${(totalSpeechSec/60).toFixed(1)} min of ${(download.durationSeconds/60).toFixed(1)} min (${(speechRatio*100).toFixed(1)}%)`);
-  console.log(`[vad] 🔊 Longest segment: ${longestInMerged?.durationSec.toFixed(0)}s`);
+    // 4. Run VAD to detect speech segments
+    console.log(`[orchestrator] running voice activity detection`);
+    await updateProgress?.(25, "Detecting speech segments...");
+    speechSegments = await detectSpeech(wavPath);
+    
+    // 5. Build merged timeline mapping and find longest segment
+    let mergedPosition = 0;
+    segmentMapping = speechSegments.map((seg) => {
+      const mapped = {
+        originalStartSec: seg.startSec,
+        originalEndSec: seg.endSec,
+        mergedStartSec: mergedPosition,
+        mergedEndSec: mergedPosition + seg.durationSec,
+        durationSec: seg.durationSec,
+      };
+      mergedPosition += seg.durationSec;
+      return mapped;
+    });
 
-  // 5. Detect VAD failure and bypass if necessary
-  const VAD_FAILURE_THRESHOLD_SEC = 300; // 5 minutes
-  const vadFailed = totalSpeechSec < VAD_FAILURE_THRESHOLD_SEC;
-  
-  if (vadFailed) {
-    console.log(`[vad] ⚠️ VAD FAILURE DETECTED: Only ${(totalSpeechSec/60).toFixed(1)}min speech detected - likely music/noise issue`);
-    console.log(`[vad] 🔄 BYPASSING VAD: Using full audio for transcription instead`);
+    longestInMerged = segmentMapping.length > 0
+      ? segmentMapping.reduce((longest, current) =>
+          current.durationSec > longest.durationSec ? current : longest
+        )
+      : null;
+
+    totalSpeechSec = mergedPosition;
+    speechRatio = download.durationSeconds > 0 ? totalSpeechSec / download.durationSeconds : 0;
+    
+    console.log(`[vad] 🎤 Detected ${speechSegments.length} speech segments`);
+    console.log(`[vad] 📊 Total speech: ${(totalSpeechSec/60).toFixed(1)} min of ${(download.durationSeconds/60).toFixed(1)} min (${(speechRatio*100).toFixed(1)}%)`);
+    console.log(`[vad] 🔊 Longest segment: ${longestInMerged?.durationSec.toFixed(0)}s`);
+
+    // 6. Detect VAD failure (music/noise issue)
+    const VAD_FAILURE_THRESHOLD_SEC = 300; // 5 minutes
+    vadFailed = totalSpeechSec < VAD_FAILURE_THRESHOLD_SEC;
+    
+    if (vadFailed) {
+      console.log(`[vad] ⚠️ VAD FAILURE DETECTED: Only ${(totalSpeechSec/60).toFixed(1)}min speech detected - likely music/noise issue`);
+      console.log(`[vad] 🔄 BYPASSING VAD: Using full audio for transcription instead`);
+    }
   }
 
   // 5. Extract and concatenate speech-only segments (or use full audio if VAD failed)
@@ -205,13 +225,21 @@ export async function processVideoOrchestrator(input: ProcessVideoInput): Promis
 
   // 11. Store AI segmentation (LLM v1)
   console.log(`[orchestrator] storing AI segmentation data`);
+  
+  let vadBypassReason = '';
+  if (skipVAD) {
+    vadBypassReason = `[VAD SKIPPED - Long video (${(download.durationSeconds/60).toFixed(0)}min > ${LONG_VIDEO_THRESHOLD_SEC/60}min)] `;
+  } else if (vadFailed) {
+    vadBypassReason = `[VAD BYPASSED - Music/noise issue (${(totalSpeechSec/60).toFixed(1)}min < 5min threshold)] `;
+  }
+  
   await createSegmentation({
     video_id: video.id,
     method: "llm_v1",
     sermon_start_sec: aiResult.boundaries.sermon_start_sec,
     sermon_end_sec: aiResult.boundaries.sermon_end_sec,
     confidence: aiResult.boundaries.confidence,
-    explanation: `${vadFailed ? '[VAD BYPASSED - Full audio used] ' : ''}AI Pipeline: ${aiResult.boundaries.explanation}. Sermon likeness: ${aiResult.decision.sermon_likeness}, Category: ${aiResult.decision.category}. Reasons: ${aiResult.decision.reasons.join("; ")}.`,
+    explanation: `${vadBypassReason}AI Pipeline: ${aiResult.boundaries.explanation}. Sermon likeness: ${aiResult.decision.sermon_likeness}, Category: ${aiResult.decision.category}. Reasons: ${aiResult.decision.reasons.join("; ")}.`,
     approved: aiResult.decision.should_autopublish,
   });
 
