@@ -4,7 +4,7 @@
  */
 
 import { Request, Response, NextFunction } from "express";
-import { createJob, getJobStatus, getAgentJobs } from "../services/business/backfillJobService.js";
+import { createJob, getJobStatus, getAgentJobs, cancelJob } from "../services/business/backfillJobService.js";
 import { enqueueBackfillJob } from "../services/external/queue/enqueueBackfillJob.js";
 
 /**
@@ -100,6 +100,29 @@ export async function getAgentBackfillJobs(
     }));
 
     res.status(200).json(mappedJobs);
+  } catch (error) {
+    next(error);
+  }
+}
+
+/**
+ * DELETE /agents/:id/backfill/:jobId
+ * Cancel a backfill job and clean up associated resources
+ */
+export async function cancelBackfillJob(
+  req: Request<{ id: string; jobId: string }>,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  try {
+    const { id: agentId, jobId } = req.params;
+
+    await cancelJob(jobId, agentId);
+
+    res.status(200).json({
+      message: "Backfill job cancelled successfully",
+      jobId,
+    });
   } catch (error) {
     next(error);
   }

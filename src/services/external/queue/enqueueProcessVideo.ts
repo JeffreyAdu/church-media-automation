@@ -59,6 +59,7 @@ export async function enqueueProcessVideo(
     backoff: { type: "exponential", delay: 10_000 },
     removeOnComplete: { age: 3600, count: 1000 }, // Remove after 1 hour or keep max 1000
     removeOnFail: { age: 3600, count: 100 }, // Remove failed jobs after 1 hour or keep max 100
+    // Note: No priority set (default) - backfill-scan jobs have priority 1 to run first
   });
   
   console.log(`[enqueue] Job ${jobId} enqueued for video ${params.youtubeVideoId}`);

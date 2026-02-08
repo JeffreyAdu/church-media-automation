@@ -198,3 +198,60 @@ export async function processBackfillJob(jobId: string): Promise<void> {
     throw error;
   }
 }
+
+/**
+ * Cancel a backfill job and cleanup associated resources
+ */
+export async function cancelJob(jobId: string, agentId: string): Promise<void> {
+  const job = await findBackfillJobById(jobId);
+  if (!job) {
+    throw new NotFoundError("Backfill job", jobId);
+  }
+
+  if (job.agent_id !== agentId) {
+    throw new Error("Job does not belong to this agent");
+  }
+
+  // Only allow canceling pending or processing jobs
+  if (job.status !== "pending" && job.status !== "processing") {
+    throw new Error(`Cannot cancel job with status: ${job.status}`);
+  }
+
+  try {
+    console.log(`[Backfill Job ${jobId}] Cancelling job...`);
+
+    // Remove backfill-scan job from Redis if it exists
+    const queue = queues.processVideo;
+    const waitingJobs = await queue.getJobs(["waiting", "active", "delayed"]);
+    
+    // Find and remove all jobs related to this backfill
+    let removedCount = 0;
+    for (const queueJob of waitingJobs) {
+      // Check if job data matches this backfill
+      if (queueJob.data.source === "backfill" || queueJob.name === "backfill-scan") {
+        const jobData = queueJob.data;
+        // Check if it's the scan job for this backfill
+        if (queueJob.name === "backfill-scan" && jobData.jobId === jobId) {
+          await queueJob.remove();
+          removedCount++;
+          console.log(`[Backfill Job ${jobId}] Removed backfill-scan job from queue`);
+        }
+        // Check if it's a video job from this backfill's agent
+        else if (jobData.agentId === agentId && jobData.source === "backfill") {
+          await queueJob.remove();
+          removedCount++;
+        }
+      }
+    }
+
+    console.log(`[Backfill Job ${jobId}] Removed ${removedCount} jobs from queue`);
+
+    // Update job status to failed with cancellation message
+    await updateJobStatus(jobId, "failed", "Cancelled by user");
+
+    console.log(`[Backfill Job ${jobId}] Cancelled successfully`);
+  } catch (error) {
+    console.error(`[Backfill Job ${jobId}] Failed to cancel:`, error);
+    throw new Error(`Failed to cancel backfill job: ${error instanceof Error ? error.message : "Unknown error"}`);
+  }
+}

@@ -29,9 +29,9 @@ export const RSS_FEED_TEMPLATE = `<?xml version="1.0" encoding="UTF-8"?>
 </rss>`;
 
 export const RSS_ITEM_TEMPLATE = `    <item>
-      <title>{{TITLE}}</title>
+      <title><![CDATA[{{TITLE}}]]></title>
       <link>{{LINK}}</link>
-      <description>{{DESCRIPTION}}</description>
+      <description><![CDATA[{{DESCRIPTION}}]]></description>
       <enclosure url="{{AUDIO_URL}}" length="{{AUDIO_SIZE}}" type="audio/mpeg"/>
       <guid isPermaLink="false">{{GUID}}</guid>
       <pubDate>{{PUB_DATE}}</pubDate>

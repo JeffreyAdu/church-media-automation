@@ -134,9 +134,10 @@ export async function extractAndConcatenateSpeech(
 
   console.log("[ffmpeg] extracting speech-only audio");
 
-  // Build aselect filter expression: between(t,start1,end1)+between(t,start2,end2)+...
+  // Build aselect filter expression: between(t\,start1\,end1)+between(t\,start2\,end2)+...
+  // Note: Commas must be escaped with \, because they're special chars in ffmpeg filter syntax
   const selectExpr = segments
-    .map((seg) => `between(t,${seg.startSec},${seg.endSec})`)
+    .map((seg) => `between(t\\,${seg.startSec}\\,${seg.endSec})`)
     .join("+");
 
   const command = [

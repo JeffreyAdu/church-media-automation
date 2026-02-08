@@ -104,6 +104,17 @@ export async function processVideoOrchestrator(input: ProcessVideoInput): Promis
   // 7. Extract just the sermon portion from speech-only audio using AI-detected boundaries
   console.log(`[orchestrator] extracting AI-detected sermon segment`);
   await updateProgress?.(65, "Extracting sermon segment...");
+  
+  // Validate sermon boundaries
+  if (aiResult.boundaries.sermon_start_sec < 0 || 
+      aiResult.boundaries.sermon_end_sec > totalSpeechSec ||
+      aiResult.boundaries.sermon_start_sec >= aiResult.boundaries.sermon_end_sec) {
+    throw new Error(
+      `Invalid sermon boundaries: start=${aiResult.boundaries.sermon_start_sec}s, ` +
+      `end=${aiResult.boundaries.sermon_end_sec}s, total=${totalSpeechSec}s`
+    );
+  }
+  
   const sermonOnlyFileName = `${youtubeVideoId}-sermon.mp3`;
   const sermonOnlyPath = await extractSegment(
     speechOnlyAudio.outputPath,
@@ -200,14 +211,26 @@ export async function processVideoOrchestrator(input: ProcessVideoInput): Promis
     });
   }
 
-  // Cleanup temp files
-  if (introPath) await unlink(introPath).catch(() => {});
-  if (outroPath) await unlink(outroPath).catch(() => {});
-  await unlink(download.audioPath).catch(() => {});
-  await unlink(wavPath).catch(() => {});
-  await unlink(speechOnlyAudio.outputPath).catch(() => {});
-  await unlink(sermonOnlyPath).catch(() => {});
-  await unlink(finalEpisode.outputPath).catch(() => {});
+  // Cleanup temp files (log errors but don't fail processing)
+  const cleanupFiles = [
+    { path: introPath, name: 'intro' },
+    { path: outroPath, name: 'outro' },
+    { path: download.audioPath, name: 'youtube audio' },
+    { path: wavPath, name: 'WAV' },
+    { path: speechOnlyAudio.outputPath, name: 'speech-only' },
+    { path: sermonOnlyPath, name: 'sermon' },
+    { path: finalEpisode.outputPath, name: 'final episode' },
+  ];
+  
+  for (const file of cleanupFiles) {
+    if (file.path) {
+      try {
+        await unlink(file.path);
+      } catch (err) {
+        console.warn(`[orchestrator] Failed to cleanup ${file.name} file: ${err}`);
+      }
+    }
+  }
 
   console.log(`[orchestrator] ✓ completed episode ${episode.id}`);
   await updateProgress?.(100, "Processing complete!");

@@ -3,7 +3,7 @@
  * Builds RSS 2.0 + iTunes podcast feeds for agents.
  */
 
-import { escapeXml, formatDuration, formatRssDate } from "../../utils/rssXml.js";
+import { escapeXml, escapeCdata, formatDuration, formatRssDate } from "../../utils/rssXml.js";
 import { RSS_FEED_TEMPLATE, RSS_ITEM_TEMPLATE, RSS_IMAGE_TEMPLATE } from "./rss/rssTemplate.js";
 import type { Agent } from "../../repositories/agentRepository.js";
 import type { Episode } from "../../repositories/episodeRepository.js";
@@ -29,8 +29,10 @@ export function buildRssFeed(config: RssFeedConfig, episodes: Episode[]): string
 
   const items = episodes
     .map((ep) => {
-      const title = escapeXml(ep.title);
-      const description = escapeXml(ep.description || "");
+      // For CDATA sections, use raw text (escape only the CDATA end marker)
+      const title = escapeCdata(ep.title);
+      const description = escapeCdata(ep.description || "");
+      // For attributes, use XML escaping
       const audioUrl = escapeXml(ep.audio_url);
       const guid = escapeXml(ep.guid);
       const pubDate = formatRssDate(ep.published_at);

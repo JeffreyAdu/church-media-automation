@@ -117,20 +117,15 @@ async function splitAudioIntoChunks(
   const tempDir = path.join(os.tmpdir(), "transcribe-chunks", path.basename(audioPath, path.extname(audioPath)));
   await mkdir(tempDir, { recursive: true });
 
-  // Get duration
+  // Get duration using ffprobe (more reliable than shell pipes)
   const { stdout } = await execAsync(
-    `ffmpeg -i "${audioPath}" 2>&1 | grep "Duration" | cut -d ' ' -f 4 | sed s/,//`
+    `ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "${audioPath}"`
   );
 
-  const durationMatch = stdout.match(/(\d+):(\d+):(\d+)/);
-  if (!durationMatch) {
-    throw new Error("Could not determine audio duration");
+  const totalSeconds = Math.floor(parseFloat(stdout.trim()));
+  if (isNaN(totalSeconds) || totalSeconds <= 0) {
+    throw new Error(`Could not determine audio duration from: ${stdout}`);
   }
-
-  const hours = parseInt(durationMatch[1]);
-  const minutes = parseInt(durationMatch[2]);
-  const seconds = parseInt(durationMatch[3]);
-  const totalSeconds = hours * 3600 + minutes * 60 + seconds;
 
   console.log(`[transcribe] Total duration: ${totalSeconds}s`);
 

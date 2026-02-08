@@ -31,6 +31,7 @@ export interface CreateEpisodeInput {
   duration_seconds?: number;
   guid: string;
   published_at: string;
+  published?: boolean;
 }
 
 /**
@@ -49,6 +50,7 @@ export async function createEpisode(input: CreateEpisodeInput): Promise<Episode>
       duration_seconds: input.duration_seconds || null,
       guid: input.guid,
       published_at: input.published_at,
+      published: input.published ?? false,
     })
     .select()
     .single();

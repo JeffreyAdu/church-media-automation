@@ -16,6 +16,15 @@ export function escapeXml(str: string): string {
 }
 
 /**
+ * Escapes content for CDATA sections.
+ * CDATA can contain any characters except "]]>", so we need to break it if that appears.
+ */
+export function escapeCdata(str: string): string {
+  // Split CDATA end marker to prevent breaking out of CDATA
+  return str.replace(/]]>/g, "]]]]><![CDATA[>");
+}
+
+/**
  * Formats duration in seconds to HH:MM:SS for iTunes.
  */
 export function formatDuration(seconds: number): string {
