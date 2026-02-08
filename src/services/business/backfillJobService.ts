@@ -24,6 +24,7 @@ import { getGenericErrorMessage } from "../../utils/errorMessages.js";
 export interface BackfillJobWithProgress extends BackfillJob {
   activeVideos?: Array<{
     videoId: string;
+    title?: string;
     progress: number;
     status: string;
   }>;
@@ -78,6 +79,7 @@ export async function getJobStatus(jobId: string): Promise<BackfillJobWithProgre
           const progress = (j.progress as any) || {};
           return {
             videoId: j.data.youtubeVideoId,
+            title: j.data.title, // Include title from job data
             progress: progress.progress || 0,
             status: progress.status || "Pending...",
           };
@@ -163,6 +165,7 @@ export async function processBackfillJob(jobId: string): Promise<void> {
             agentId: agent.id,
             youtubeVideoId: video.youtube_video_id,
             youtubeUrl: video.youtube_url,
+            title: video.title, // Include title for UI display
           });
 
           if (enqueueResult.enqueued) {

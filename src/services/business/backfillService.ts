@@ -59,6 +59,7 @@ export async function backfillVideos(
           agentId: agent.id,
           youtubeVideoId: video.youtube_video_id,
           youtubeUrl: video.youtube_url,
+          title: video.title, // Include title for UI display
         });
         console.log(`[backfill] Enqueue result for ${video.youtube_video_id}:`, enqueueResult);
 

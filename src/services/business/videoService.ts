@@ -72,6 +72,7 @@ export async function processYouTubeNotification(
       agentId: agent.id,
       youtubeVideoId: videoId,
       youtubeUrl: link,
+      title, // Include title for UI display
     });
 
     if (!queueResult.enqueued) {

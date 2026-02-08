@@ -9,6 +9,7 @@ export interface EnqueueProcessVideoParams {
   agentId: string;
   youtubeVideoId: string;
   youtubeUrl: string;
+  title?: string; // Video title for UI display
 }
 
 export interface EnqueueResult {
