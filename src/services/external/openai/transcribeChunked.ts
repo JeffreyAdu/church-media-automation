@@ -1,17 +1,14 @@
 /**
  * Chunked Whisper Transcription
- * Splits large audio files into chunks for OpenAI Whisper (25MB limit).
+ * Compresses large audio files for OpenAI Whisper (25MB limit).
+ * Uses mono, 16kHz, 48kbps compression for speech-optimized transcription.
  */
 
 import { openaiClient, openaiConfig } from "../../../config/openai.js";
 import { createReadStream, statSync } from "fs";
-import { exec } from "child_process";
-import { promisify } from "util";
-import { mkdir } from "fs/promises";
+import { unlink } from "fs/promises";
+import { compressForWhisper } from "../ffmpeg.js";
 import path from "path";
-import os from "os";
-
-const execAsync = promisify(exec);
 
 export type TranscriptSegment = {
   start: number;
@@ -24,127 +21,81 @@ export type TranscriptResult = {
   segments: TranscriptSegment[];
 };
 
-const MAX_FILE_SIZE_MB = 24; // Stay under 25MB limit with buffer
-const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
+const MAX_SAFE_SIZE_MB = 20; // Stay under 25MB limit with buffer
+const MAX_SAFE_SIZE_BYTES = MAX_SAFE_SIZE_MB * 1024 * 1024;
 
 /**
- * Transcribes audio file with chunking if needed.
- * Automatically splits files > 24MB into chunks.
+ * Transcribes audio file with automatic compression if needed.
+ * Files > 20MB are compressed to mono, 16kHz, 48kbps for speech transcription.
  */
 export async function transcribeWithTimestamps(
   audioPath: string
 ): Promise<TranscriptResult> {
   const fileSize = statSync(audioPath).size;
+  const fileSizeMB = fileSize / 1024 / 1024;
 
-  console.log(`[transcribe] File size: ${(fileSize / 1024 / 1024).toFixed(2)}MB`);
+  console.log(`[transcribe] File size: ${fileSizeMB.toFixed(2)}MB`);
 
-  // If file is small enough, transcribe directly
-  if (fileSize <= MAX_FILE_SIZE_BYTES) {
+  let pathForWhisper = audioPath;
+  let needsCleanup = false;
+
+  // If file is too large, compress it for transcription
+  if (fileSize > MAX_SAFE_SIZE_BYTES) {
+    console.log(`[transcribe] ⚠️ File exceeds ${MAX_SAFE_SIZE_MB}MB - compressing for Whisper API`);
+    
+    const compressedFileName = `${path.basename(audioPath, path.extname(audioPath))}_whisper.mp3`;
+    pathForWhisper = await compressForWhisper(audioPath, compressedFileName);
+    needsCleanup = true;
+
+    const compressedSize = statSync(pathForWhisper).size;
+    const compressedSizeMB = compressedSize / 1024 / 1024;
+    console.log(`[transcribe] ✓ Compressed: ${fileSizeMB.toFixed(2)}MB → ${compressedSizeMB.toFixed(2)}MB`);
+
+    // Safety check: ensure compressed file is still under limit
+    if (compressedSize > MAX_SAFE_SIZE_BYTES) {
+      throw new Error(
+        `Compressed audio (${compressedSizeMB.toFixed(2)}MB) still exceeds ${MAX_SAFE_SIZE_MB}MB limit. ` +
+        `Original: ${fileSizeMB.toFixed(2)}MB. Audio may be too long for Whisper API.`
+      );
+    }
+  } else {
     console.log(`[transcribe] File within limit, transcribing directly`);
-    return await transcribeSingleFile(audioPath, 0);
   }
 
-  // Split large file into chunks
-  console.log(`[transcribe] File exceeds limit, splitting into chunks`);
-  const chunks = await splitAudioIntoChunks(audioPath);
+  try {
+    // Transcribe the file (compressed or original)
+    const audioStream = createReadStream(pathForWhisper);
 
-  console.log(`[transcribe] Transcribing ${chunks.length} chunks`);
+    const transcription = await openaiClient.audio.transcriptions.create({
+      file: audioStream,
+      model: openaiConfig.transcriptionModel,
+      response_format: "verbose_json",
+      timestamp_granularities: ["segment"],
+    });
 
-  // Transcribe each chunk
-  const chunkResults = await Promise.all(
-    chunks.map(async (chunk, index) => {
-      console.log(`[transcribe] Processing chunk ${index + 1}/${chunks.length}`);
-      return await transcribeSingleFile(chunk.path, chunk.startTime);
-    })
-  );
+    if (!transcription.segments || transcription.segments.length === 0) {
+      throw new Error("Transcription returned no segments. Timestamps are required for sermon detection.");
+    }
 
-  // Merge results
-  const allSegments: TranscriptSegment[] = [];
-  const allText: string[] = [];
+    const segments: TranscriptSegment[] = transcription.segments.map((seg: any) => ({
+      start: seg.start,
+      end: seg.end,
+      text: seg.text,
+    }));
 
-  for (const result of chunkResults) {
-    allSegments.push(...result.segments);
-    allText.push(result.text);
+    return {
+      text: transcription.text,
+      segments,
+    };
+  } finally {
+    // Clean up compressed file if we created one
+    if (needsCleanup) {
+      try {
+        await unlink(pathForWhisper);
+        console.log(`[transcribe] cleaned up compressed file`);
+      } catch (err) {
+        console.warn(`[transcribe] failed to cleanup compressed file: ${err}`);
+      }
+    }
   }
-
-  console.log(`[transcribe] Merged ${allSegments.length} total segments`);
-
-  return {
-    text: allText.join(" "),
-    segments: allSegments,
-  };
-}
-
-/**
- * Transcribes a single audio file.
- */
-async function transcribeSingleFile(
-  audioPath: string,
-  timeOffset: number
-): Promise<TranscriptResult> {
-  const audioStream = createReadStream(audioPath);
-
-  const transcription = await openaiClient.audio.transcriptions.create({
-    file: audioStream,
-    model: openaiConfig.transcriptionModel,
-    response_format: "verbose_json",
-    timestamp_granularities: ["segment"],
-  });
-
-  if (!transcription.segments || transcription.segments.length === 0) {
-    throw new Error("Transcription returned no segments");
-  }
-
-  // Adjust timestamps by offset
-  const segments: TranscriptSegment[] = transcription.segments.map((seg: any) => ({
-    start: seg.start + timeOffset,
-    end: seg.end + timeOffset,
-    text: seg.text,
-  }));
-
-  return {
-    text: transcription.text || "",
-    segments,
-  };
-}
-
-/**
- * Splits audio into ~10 minute chunks.
- */
-async function splitAudioIntoChunks(
-  audioPath: string
-): Promise<Array<{ path: string; startTime: number }>> {
-  const tempDir = path.join(os.tmpdir(), "transcribe-chunks", path.basename(audioPath, path.extname(audioPath)));
-  await mkdir(tempDir, { recursive: true });
-
-  // Get duration using ffprobe (more reliable than shell pipes)
-  const { stdout } = await execAsync(
-    `ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "${audioPath}"`
-  );
-
-  const totalSeconds = Math.floor(parseFloat(stdout.trim()));
-  if (isNaN(totalSeconds) || totalSeconds <= 0) {
-    throw new Error(`Could not determine audio duration from: ${stdout}`);
-  }
-
-  console.log(`[transcribe] Total duration: ${totalSeconds}s`);
-
-  // Split into 10-minute chunks
-  const chunkDuration = 600; // 10 minutes
-  const numChunks = Math.ceil(totalSeconds / chunkDuration);
-
-  const chunks: Array<{ path: string; startTime: number }> = [];
-
-  for (let i = 0; i < numChunks; i++) {
-    const startTime = i * chunkDuration;
-    const chunkPath = path.join(tempDir, `chunk_${i}.mp3`);
-
-    await execAsync(
-      `ffmpeg -i "${audioPath}" -ss ${startTime} -t ${chunkDuration} -c copy -y "${chunkPath}"`
-    );
-
-    chunks.push({ path: chunkPath, startTime });
-  }
-
-  return chunks;
 }

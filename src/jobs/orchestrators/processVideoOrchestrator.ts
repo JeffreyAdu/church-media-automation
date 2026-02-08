@@ -79,15 +79,37 @@ export async function processVideoOrchestrator(input: ProcessVideoInput): Promis
   console.log(`[vad] 📊 Total speech: ${(totalSpeechSec/60).toFixed(1)} min of ${(download.durationSeconds/60).toFixed(1)} min (${(speechRatio*100).toFixed(1)}%)`);
   console.log(`[vad] 🔊 Longest segment: ${longestInMerged?.durationSec.toFixed(0)}s`);
 
-  // 5. Extract and concatenate speech-only segments
-  console.log(`[orchestrator] extracting speech-only audio`);
-  await updateProgress?.(35, "Extracting speech segments...");
-  const speechOnlyFileName = `${youtubeVideoId}-speech-only.mp3`;
-  const speechOnlyAudio = await extractSpeechSegments(
-    download.audioPath,
-    speechSegments,
-    speechOnlyFileName
-  );
+  // 5. Detect VAD failure and bypass if necessary
+  const VAD_FAILURE_THRESHOLD_SEC = 300; // 5 minutes
+  const vadFailed = totalSpeechSec < VAD_FAILURE_THRESHOLD_SEC;
+  
+  if (vadFailed) {
+    console.log(`[vad] ⚠️ VAD FAILURE DETECTED: Only ${(totalSpeechSec/60).toFixed(1)}min speech detected - likely music/noise issue`);
+    console.log(`[vad] 🔄 BYPASSING VAD: Using full audio for transcription instead`);
+  }
+
+  // 5. Extract and concatenate speech-only segments (or use full audio if VAD failed)
+  console.log(`[orchestrator] ${vadFailed ? 'using full audio' : 'extracting speech-only audio'}`);
+  await updateProgress?.(35, vadFailed ? "Using full audio..." : "Extracting speech segments...");
+  
+  let speechOnlyAudioPath: string;
+  let audioReferenceDuration: number;
+  
+  if (vadFailed) {
+    // Use full audio directly, bypass VAD extraction
+    speechOnlyAudioPath = download.audioPath;
+    audioReferenceDuration = download.durationSeconds;
+  } else {
+    // Normal VAD extraction
+    const speechOnlyFileName = `${youtubeVideoId}-speech-only.mp3`;
+    const speechOnlyResult = await extractSpeechSegments(
+      download.audioPath,
+      speechSegments,
+      speechOnlyFileName
+    );
+    speechOnlyAudioPath = speechOnlyResult.outputPath;
+    audioReferenceDuration = totalSpeechSec;
+  }
 
   // 6. Run AI pipeline: transcribe speech-only → detect sermon → generate metadata → autopublish decision
   console.log(`[orchestrator] running AI sermon detection pipeline`);
@@ -98,7 +120,7 @@ export async function processVideoOrchestrator(input: ProcessVideoInput): Promis
   }
 
   const aiResult = await runSermonAiStage({
-    audioPath: speechOnlyAudio.outputPath,
+    audioPath: speechOnlyAudioPath,
     youtubeTitle: download.title,
     serviceDateISO: video.published_at || new Date().toISOString(),
   });
@@ -107,19 +129,19 @@ export async function processVideoOrchestrator(input: ProcessVideoInput): Promis
   console.log(`[orchestrator] extracting AI-detected sermon segment`);
   await updateProgress?.(65, "Extracting sermon segment...");
   
-  // Validate sermon boundaries
+  // Validate sermon boundaries (use correct duration based on whether VAD was bypassed)
   if (aiResult.boundaries.sermon_start_sec < 0 || 
-      aiResult.boundaries.sermon_end_sec > totalSpeechSec ||
+      aiResult.boundaries.sermon_end_sec > audioReferenceDuration ||
       aiResult.boundaries.sermon_start_sec >= aiResult.boundaries.sermon_end_sec) {
     throw new Error(
       `Invalid sermon boundaries: start=${aiResult.boundaries.sermon_start_sec}s, ` +
-      `end=${aiResult.boundaries.sermon_end_sec}s, total=${totalSpeechSec}s`
+      `end=${aiResult.boundaries.sermon_end_sec}s, total=${audioReferenceDuration}s (VAD ${vadFailed ? 'bypassed' : 'used'})`
     );
   }
   
   const sermonOnlyFileName = `${youtubeVideoId}-sermon.mp3`;
   const sermonOnlyPath = await extractSegment(
-    speechOnlyAudio.outputPath,
+    speechOnlyAudioPath,
     aiResult.boundaries.sermon_start_sec,
     aiResult.boundaries.sermon_end_sec,
     sermonOnlyFileName
@@ -189,12 +211,12 @@ export async function processVideoOrchestrator(input: ProcessVideoInput): Promis
     sermon_start_sec: aiResult.boundaries.sermon_start_sec,
     sermon_end_sec: aiResult.boundaries.sermon_end_sec,
     confidence: aiResult.boundaries.confidence,
-    explanation: `AI Pipeline: ${aiResult.boundaries.explanation}. Sermon likeness: ${aiResult.decision.sermon_likeness}, Category: ${aiResult.decision.category}. Reasons: ${aiResult.decision.reasons.join("; ")}.`,
+    explanation: `${vadFailed ? '[VAD BYPASSED - Full audio used] ' : ''}AI Pipeline: ${aiResult.boundaries.explanation}. Sermon likeness: ${aiResult.decision.sermon_likeness}, Category: ${aiResult.decision.category}. Reasons: ${aiResult.decision.reasons.join("; ")}.`,
     approved: aiResult.decision.should_autopublish,
   });
 
-  // 12. Also store VAD segmentation for reference
-  if (longestInMerged) {
+  // 12. Store VAD segmentation for reference (only if VAD succeeded)
+  if (!vadFailed && longestInMerged) {
     console.log(`[orchestrator] storing VAD segmentation for reference`);
     const confidence = Math.min(
       speechRatio * 0.6 +
@@ -219,7 +241,7 @@ export async function processVideoOrchestrator(input: ProcessVideoInput): Promis
     { path: outroPath, name: 'outro' },
     { path: download.audioPath, name: 'youtube audio' },
     { path: wavPath, name: 'WAV' },
-    { path: speechOnlyAudio.outputPath, name: 'speech-only' },
+    { path: vadFailed ? null : speechOnlyAudioPath, name: 'speech-only' }, // Don't delete if using original audio
     { path: sermonOnlyPath, name: 'sermon' },
     { path: finalEpisode.outputPath, name: 'final episode' },
   ];
