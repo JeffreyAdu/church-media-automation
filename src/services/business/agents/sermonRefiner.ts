@@ -9,10 +9,11 @@ Goal:
 Return the start and end timestamps (seconds) for the MAIN MESSAGE / SERMON portion of a church service.
 
 CRITICAL:
-- We want ONE continuous range: sermon_start_sec → sermon_end_sec.
-- DO NOT remove content inside the range even if it includes prayer, singing, shouting, or long silence.
-  Example: if the pastor says "be quiet for 20 minutes" and the room is silent, the sermon range MUST still include that silence.
-- Your job is ONLY to find where the message begins and where it ends.
+- You will receive the COMPLETE transcript with timestamps in format: [MM:SS] text
+- Analyze the ENTIRE transcript to find where the sermon begins and ends
+- We want ONE continuous range: sermon_start_sec → sermon_end_sec
+- DO NOT remove content inside the range even if it includes prayer, singing, shouting, or long silence
+- Your job is ONLY to find where the message begins and where it ends
 
 Exclude from the sermon range:
 - pre-service chatter, music warmup before the message
@@ -26,8 +27,6 @@ Include inside the sermon range if it occurs after the message has started and b
 - altar call
 - shouting / speaking in tongues
 - silence
-
-Use timestamps from transcript segments.
 
 Output Format:
 You MUST return a JSON object with the following fields:

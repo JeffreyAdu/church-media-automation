@@ -1,6 +1,7 @@
 /**
- * Sermon AI Pipeline
- * Orchestrates: Transcription → Sermon Detection → Metadata → Autopublish Decision
+ * Sermon AI Pipeline (OPTIMIZED)
+ * Instead of sending 1000+ segments as JSON array, sends timestamped text.
+ * This ensures the model receives ALL content without JSON parsing overhead.
  */
 
 import { transcribeWithTimestamps } from "../external/openai/transcribeChunked.js";
@@ -16,12 +17,11 @@ import {
 import { SERMON_REFINER_PROMPT } from "./agents/sermonRefiner.js";
 import { METADATA_WRITER_PROMPT } from "./agents/metadataWriter.js";
 import { AUTOPUBLISH_PROMPT } from "./agents/autopublishDecision.js";
-import {
-  POSITIVE_SERMON_EXAMPLES,
+import { POSITIVE_SERMON_EXAMPLES,
   NEGATIVE_NON_SERMON_EXAMPLES,
   EDGE_CASE_EXAMPLES,
 } from "./agents/autopublishExamples.js";
-import type { TranscriptResult } from "../external/openai/transcribe.js";
+import type { TranscriptResult } from "../external/openai/transcribeChunked.js";
 
 export interface SermonPipelineInput {
   audioPath: string;
@@ -37,17 +37,42 @@ export interface SermonPipelineResult {
 }
 
 /**
+ * Converts transcript segments to timestamped text format.
+ * Instead of JSON array, sends readable text with timestamps.
+ * Example: "[00:00] Welcome to our service today..."
+ */
+function formatTranscriptWithTimestamps(segments: Array<{start: number; end: number; text: string}>): string {
+  return segments
+    .map(seg => {
+      const minutes = Math.floor(seg.start / 60);
+      const seconds = Math.floor(seg.start % 60);
+      const timestamp = `[${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}]`;
+      return `${timestamp} ${seg.text.trim()}`;
+    })
+    .join('\n');
+}
+
+/**
  * Runs the complete AI pipeline for sermon processing.
- * 1. Transcribes audio with timestamps
- * 2. Detects sermon boundaries
- * 3. Generates episode metadata
- * 4. Decides autopublish eligibility
+ * OPTIMIZED: Sends transcript as formatted text instead of JSON array.
  */
 export async function runSermonAiStage(
   params: SermonPipelineInput
 ): Promise<SermonPipelineResult> {
   console.log("[sermonPipeline] starting transcription");
   const transcript = await transcribeWithTimestamps(params.audioPath);
+
+  // Diagnostic logging
+  const transcriptDurationMin = transcript.segments.length > 0 
+    ? (transcript.segments[transcript.segments.length - 1].end / 60).toFixed(1)
+    : 0;
+  console.log(`[sermonPipeline] 📊 Transcript: ${transcript.segments.length} segments, ${transcriptDurationMin}min total`);
+  console.log(`[sermonPipeline] 📝 Total text length: ${transcript.text.length} characters`);
+  
+  // Convert to timestamped text format (much more efficient than JSON array)
+  const timestampedTranscript = formatTranscriptWithTimestamps(transcript.segments);
+  const transcriptTokenEstimate = Math.ceil(timestampedTranscript.length / 4);
+  console.log(`[sermonPipeline] 📤 Sending transcript: ${timestampedTranscript.length} chars (~${transcriptTokenEstimate} tokens)`);
 
   console.log("[sermonPipeline] detecting sermon boundaries");
   const boundaries = await runJsonAgent({
@@ -56,7 +81,7 @@ export async function runSermonAiStage(
     input: {
       youtube_title: params.youtubeTitle,
       service_date: params.serviceDateISO,
-      transcript_segments: transcript.segments,
+      full_transcript: timestampedTranscript, // Formatted text instead of JSON array
     },
     schema: SermonBoundarySchema,
   });
@@ -74,6 +99,8 @@ export async function runSermonAiStage(
     )
     .map((s) => s.text)
     .join(" ");
+
+  console.log(`[sermonPipeline] 📝 Extracted sermon text: ${sermonText.length} chars`);
 
   console.log("[sermonPipeline] generating episode metadata");
   const metadata = await runJsonAgent({

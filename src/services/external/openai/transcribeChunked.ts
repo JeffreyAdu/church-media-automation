@@ -1,13 +1,15 @@
 /**
- * Chunked Whisper Transcription
- * Compresses large audio files for OpenAI Whisper (25MB limit).
- * Uses mono, 16kHz, 48kbps compression for speech-optimized transcription.
+ * Whisper Transcription Service
+ * Supports both local (faster-whisper) and API (OpenAI) transcription.
+ * Local: No size limits, no API costs, runs on worker CPU
+ * API: Faster for short files, has 25MB limit
  */
 
 import { openaiClient, openaiConfig } from "../../../config/openai.js";
 import { createReadStream, statSync } from "fs";
 import { unlink } from "fs/promises";
 import { compressForWhisper } from "../ffmpeg.js";
+import { transcribeWithWhisperLocal } from "../whisperLocal.js";
 import path from "path";
 
 export type TranscriptSegment = {
@@ -21,12 +23,16 @@ export type TranscriptResult = {
   segments: TranscriptSegment[];
 };
 
-const MAX_SAFE_SIZE_MB = 20; // Stay under 25MB limit with buffer
+const MAX_SAFE_SIZE_MB = 20; // Stay under 25MB limit with buffer (API only)
 const MAX_SAFE_SIZE_BYTES = MAX_SAFE_SIZE_MB * 1024 * 1024;
 
+// Use local Whisper by default (no size limits, no API costs)
+const USE_LOCAL_WHISPER = process.env.USE_LOCAL_WHISPER !== "false";
+
 /**
- * Transcribes audio file with automatic compression if needed.
- * Files > 20MB are compressed to mono, 16kHz, 48kbps for speech transcription.
+ * Transcribes audio file with automatic method selection.
+ * - Local Whisper (default): No size limits, no API costs, runs on worker
+ * - OpenAI API (fallback): Faster for short files, compression if > 20MB
  */
 export async function transcribeWithTimestamps(
   audioPath: string
@@ -35,6 +41,15 @@ export async function transcribeWithTimestamps(
   const fileSizeMB = fileSize / 1024 / 1024;
 
   console.log(`[transcribe] File size: ${fileSizeMB.toFixed(2)}MB`);
+  
+  // Use local Whisper if enabled (default)
+  if (USE_LOCAL_WHISPER) {
+    console.log(`[transcribe] Using local faster-whisper (no size limits)`);
+    return transcribeWithWhisperLocal(audioPath);
+  }
+  
+  // Fallback to OpenAI API (requires compression for large files)
+  console.log(`[transcribe] Using OpenAI Whisper API`);
 
   let pathForWhisper = audioPath;
   let needsCleanup = false;
@@ -55,7 +70,7 @@ export async function transcribeWithTimestamps(
     if (compressedSize > MAX_SAFE_SIZE_BYTES) {
       throw new Error(
         `Compressed audio (${compressedSizeMB.toFixed(2)}MB) still exceeds ${MAX_SAFE_SIZE_MB}MB limit. ` +
-        `Original: ${fileSizeMB.toFixed(2)}MB. Audio may be too long for Whisper API.`
+        `Original: ${fileSizeMB.toFixed(2)}MB. Set USE_LOCAL_WHISPER=true for unlimited file sizes.`
       );
     }
   } else {

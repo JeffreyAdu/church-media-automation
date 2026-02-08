@@ -33,6 +33,13 @@ export async function runJsonAgent<T>(
   // Convert input to string format
   const inputString = typeof input === "string" ? input : JSON.stringify(input);
 
+  // Diagnostic logging for large inputs
+  const inputTokenEstimate = Math.ceil(inputString.length / 4); // Rough estimate: 4 chars ≈ 1 token
+  console.log(`[${agentName}] Input size: ${inputString.length} chars (~${inputTokenEstimate} tokens)`);
+  if (inputTokenEstimate > 50000) {
+    console.warn(`[${agentName}] ⚠️ Very large input (${inputTokenEstimate} tokens) - may hit context limits or cause poor quality responses`);
+  }
+
   // Run agent with input (temperature/maxTokens controlled by model defaults)
   const result = await run(agent, inputString);
 
