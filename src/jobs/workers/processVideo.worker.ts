@@ -79,14 +79,14 @@ async function handleJob(job: any) {
 
 const worker = new Worker(queueName, handleJob, {
   connection: redis,
-  concurrency: 5, // Allow backfill-scan + 4 video jobs
+  concurrency: 2, // Reduced from 5 - Fly.io bandwidth limitation
   lockDuration: 1800000, // 30 minutes
   lockRenewTime: 60000,
 });
 
 console.log("[worker] Starting worker for queue:", queueName);
 console.log("[worker] Redis connection:", redis.options.host, redis.options.port);
-console.log("[worker] Concurrency:", 5);
+console.log("[worker] Concurrency:", 2, "(reduced for Fly.io bandwidth)");
 console.log("[worker] Lock duration:", "30 minutes");
 console.log("[worker] Waiting for jobs...");
 

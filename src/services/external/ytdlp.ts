@@ -117,7 +117,10 @@ export async function downloadYouTubeAudio(
 
     // Download audio
     console.log(`[youtube-dl] Downloading audio...`);
+    console.log(`[youtube-dl] ⏳ Duration: ${Math.round(durationSeconds/60)}min - This may take a while on cloud infrastructure`);
+    
     await youtubedl(youtubeUrl, {
+      format: 'bestaudio[ext=m4a]/bestaudio/best', // Audio-only format
       extractAudio: true,
       audioFormat: "mp3",
       output: outputPath,
@@ -125,6 +128,9 @@ export async function downloadYouTubeAudio(
       cookies: fs.existsSync(COOKIES_PATH) ? COOKIES_PATH : undefined,
       'js-runtimes': 'node',
       'remote-components': 'ejs:github',
+      limitRate: '5M', // Limit to 5MB/s to avoid throttling
+      noPlaylist: true,
+      progress: true, // Show progress
     } as any);
 
     // Verify file exists
