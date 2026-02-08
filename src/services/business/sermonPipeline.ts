@@ -61,6 +61,10 @@ export async function runSermonAiStage(
     schema: SermonBoundarySchema,
   });
 
+  const sermonDurationMin = (boundaries.sermon_end_sec - boundaries.sermon_start_sec) / 60;
+  console.log(`[sermon-ai] 🎯 Detected boundaries: ${boundaries.sermon_start_sec}s → ${boundaries.sermon_end_sec}s (${sermonDurationMin.toFixed(1)} min)`);
+  console.log(`[sermon-ai] 📊 Confidence: ${boundaries.confidence}, Reason: ${boundaries.explanation}`);
+
   // Extract sermon text from transcript segments within boundaries
   const sermonText = transcript.segments
     .filter(
@@ -98,6 +102,9 @@ export async function runSermonAiStage(
     },
     schema: AutopublishDecisionSchema,
   });
+
+  console.log(`[sermon-ai] 🤖 Autopublish: ${decision.should_autopublish ? "YES" : "NO"} | Likeness: ${decision.sermon_likeness} | Category: ${decision.category}`);
+  console.log(`[sermon-ai] 📝 Reasons: ${decision.reasons.join("; ")}`);
 
   console.log("[sermonPipeline] ✓ AI pipeline completed");
 

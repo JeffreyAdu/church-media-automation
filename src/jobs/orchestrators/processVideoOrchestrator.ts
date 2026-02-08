@@ -75,7 +75,9 @@ export async function processVideoOrchestrator(input: ProcessVideoInput): Promis
   const totalSpeechSec = mergedPosition;
   const speechRatio = download.durationSeconds > 0 ? totalSpeechSec / download.durationSeconds : 0;
   
-  console.log(`[orchestrator] detected ${speechSegments.length} speech segments, longest: ${longestInMerged?.durationSec}s`);
+  console.log(`[vad] 🎤 Detected ${speechSegments.length} speech segments`);
+  console.log(`[vad] 📊 Total speech: ${(totalSpeechSec/60).toFixed(1)} min of ${(download.durationSeconds/60).toFixed(1)} min (${(speechRatio*100).toFixed(1)}%)`);
+  console.log(`[vad] 🔊 Longest segment: ${longestInMerged?.durationSec.toFixed(0)}s`);
 
   // 5. Extract and concatenate speech-only segments
   console.log(`[orchestrator] extracting speech-only audio`);
