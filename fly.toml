@@ -36,6 +36,7 @@ primary_region = "ams"
 [env]
   PORT = "3000"
   NODE_ENV = "production"
+  YTDLP_PATH = "/usr/local/bin/yt-dlp"
 
 # Volume for temporary files (optional - uses ephemeral disk by default)
 # [[mounts]]

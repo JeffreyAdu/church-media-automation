@@ -14,6 +14,7 @@ export interface Video {
   published_at: string | null;
   duration_seconds: number | null;
   status: "discovered" | "processing" | "processed" | "failed";
+  error_message: string | null;
   raw_payload: any;
   created_at: string;
   updated_at: string;
@@ -97,4 +98,48 @@ export async function findById(id: string): Promise<Video | null> {
   }
 
   return data || null;
+}
+
+/**
+ * Updates video status and optionally sets error message
+ */
+export async function updateVideoStatus(
+  videoId: string,
+  status: Video["status"],
+  errorMessage?: string
+): Promise<Video> {
+  const { data, error } = await supabase
+    .from("videos")
+    .update({
+      status,
+      error_message: errorMessage || null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", videoId)
+    .select()
+    .single();
+
+  if (error) {
+    throw new Error(`Failed to update video status: ${error.message}`);
+  }
+
+  return data;
+}
+
+/**
+ * Gets failed videos for an agent
+ */
+export async function getFailedVideos(agentId: string): Promise<Video[]> {
+  const { data, error } = await supabase
+    .from("videos")
+    .select()
+    .eq("agent_id", agentId)
+    .eq("status", "failed")
+    .order("updated_at", { ascending: false });
+
+  if (error) {
+    throw new Error(`Failed to get failed videos: ${error.message}`);
+  }
+
+  return data || [];
 }

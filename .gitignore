@@ -136,3 +136,7 @@ dist
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 .vite/
+
+# YouTube cookies (contains authentication tokens)
+*cookies*.txt
+youtube-cookies.txt

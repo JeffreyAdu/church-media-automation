@@ -61,6 +61,8 @@ export async function getBackfillJobStatus(
       totalVideos: job.total_videos,
       processedVideos: job.processed_videos,
       enqueuedVideos: job.enqueued_videos,
+      failedVideos: job.failed_videos || [],
+      activeVideos: job.activeVideos,
       error: job.error,
       createdAt: job.created_at,
       updatedAt: job.updated_at,
@@ -85,7 +87,19 @@ export async function getAgentBackfillJobs(
 
     const jobs = await getAgentJobs(id, limit);
 
-    res.status(200).json(jobs);
+    // Map database fields to API format
+    const mappedJobs = jobs.map((job) => ({
+      jobId: job.id,
+      status: job.status,
+      totalVideos: job.total_videos,
+      processedVideos: job.processed_videos,
+      enqueuedVideos: job.enqueued_videos,
+      error: job.error,
+      createdAt: job.created_at,
+      updatedAt: job.updated_at,
+    }));
+
+    res.status(200).json(mappedJobs);
   } catch (error) {
     next(error);
   }

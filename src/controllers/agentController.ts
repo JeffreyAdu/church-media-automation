@@ -8,6 +8,7 @@ import {
   createAgent as createAgentService,
   getAgent,
   getEpisodes as getEpisodesService,
+  getFailedVideosForAgent as getFailedVideosForAgentService,
   listAgents as listAgentsService,
   updateAgent as updateAgentService,
   deleteAgent as deleteAgentService,
@@ -215,6 +216,24 @@ export async function getEpisodes(req: Request<{ id: string }>, res: Response, n
       published: episodes.filter(ep => ep.published).length,
       unpublished: episodes.filter(ep => !ep.published).length,
       episodes
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+/**
+ * GET /agents/:id/failed-videos - Gets all failed videos for an agent
+ */
+export async function getFailedVideos(req: Request<{ id: string }>, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const { id } = req.params;
+    const videos = await getFailedVideosForAgentService(id);
+    
+    res.json({
+      agentId: id,
+      total: videos.length,
+      videos
     });
   } catch (error) {
     next(error);

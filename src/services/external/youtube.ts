@@ -31,10 +31,14 @@ export async function fetchChannelVideosSince(
   channelId: string,
   since: Date
 ): Promise<YouTubeVideo[]> {
+  console.log(`[YouTube API] Fetching videos from channel ${channelId} since ${since.toISOString()}`);
+  
   const videos: YouTubeVideo[] = [];
   let pageToken: string | undefined;
+  let pageNum = 0;
 
   do {
+    pageNum++;
     const url = new URL(`${youtubeConfig.apiBase}/search`);
     url.searchParams.set("key", youtubeConfig.apiKey);
     url.searchParams.set("channelId", channelId);
@@ -47,6 +51,7 @@ export async function fetchChannelVideosSince(
       url.searchParams.set("pageToken", pageToken);
     }
 
+    console.log(`[YouTube API] Fetching page ${pageNum}...`);
     const response = await fetch(url.toString());
     if (!response.ok) {
       const error = await response.text();
@@ -65,9 +70,12 @@ export async function fetchChannelVideosSince(
     }));
 
     videos.push(...pageVideos);
+    console.log(`[YouTube API] Page ${pageNum}: +${pageVideos.length} videos (total: ${videos.length})`);
+    
     pageToken = data.nextPageToken;
   } while (pageToken);
 
+  console.log(`[YouTube API] ✓ Fetched ${videos.length} videos total in ${pageNum} pages`);
   return videos;
 }
 

@@ -11,12 +11,23 @@ import {
   getAgentBackfillJobs,
   type BackfillJob,
   type UpdateJobProgressInput,
+  type FailedVideo,
 } from "../../repositories/backfillJobRepository.js";
 import { findById as findAgentById } from "../../repositories/agentRepository.js";
 import { upsertVideo } from "../../repositories/videoRepository.js";
 import { fetchChannelVideosSince } from "../external/youtube.js";
 import { enqueueProcessVideo } from "../external/queue/enqueueProcessVideo.js";
 import { NotFoundError } from "../../utils/errors.js";
+import { queues } from "../../config/queues.js";
+import { getGenericErrorMessage } from "../../utils/errorMessages.js";
+
+export interface BackfillJobWithProgress extends BackfillJob {
+  activeVideos?: Array<{
+    videoId: string;
+    progress: number;
+    status: string;
+  }>;
+}
 
 /**
  * Create a new backfill job
@@ -40,14 +51,33 @@ export async function createJob(agentId: string, sinceDate: Date): Promise<Backf
 }
 
 /**
- * Get job status
+ * Get job status with real-time BullMQ progress
  */
-export async function getJobStatus(jobId: string): Promise<BackfillJob> {
+export async function getJobStatus(jobId: string): Promise<BackfillJobWithProgress> {
   const job = await findBackfillJobById(jobId);
   if (!job) {
     throw new NotFoundError("Backfill job", jobId);
   }
-  return job;
+
+  // Fetch active video jobs from BullMQ to get progress info
+  const activeJobs = await queues.processVideo.getJobs(["active", "waiting"]);
+  const activeVideos = await Promise.all(
+    activeJobs
+      .filter((j) => j.data.agentId === job.agent_id)
+      .map(async (j) => {
+        const progress = (j.progress as any) || {};
+        return {
+          videoId: j.data.youtubeVideoId,
+          progress: progress.progress || 0,
+          status: progress.status || "Pending...",
+        };
+      })
+  );
+
+  return {
+    ...job,
+    activeVideos: activeVideos.length > 0 ? activeVideos : undefined,
+  };
 }
 
 /**
@@ -88,8 +118,10 @@ export async function processBackfillJob(jobId: string): Promise<void> {
     await updateJobProgress(jobId, { total_videos: youtubeVideos.length });
 
     // Process videos one by one
+    console.log(`[Backfill Job ${jobId}] Starting to process and enqueue videos...`);
     let processedCount = 0;
     let enqueuedCount = 0;
+    const failedVideos: FailedVideo[] = [];
 
     for (const ytVideo of youtubeVideos) {
       try {
@@ -121,15 +153,30 @@ export async function processBackfillJob(jobId: string): Promise<void> {
           }
         }
 
-        // Update progress every 5 videos to avoid excessive DB writes
-        if (processedCount % 5 === 0 || processedCount === youtubeVideos.length) {
+        // Update progress and log every 10 videos to show activity
+        if (processedCount % 10 === 0 || processedCount === youtubeVideos.length) {
           await updateJobProgress(jobId, {
             processed_videos: processedCount,
             enqueued_videos: enqueuedCount,
+            failed_videos: failedVideos,
           });
+          console.log(`[Backfill Job ${jobId}] Progress: ${processedCount}/${youtubeVideos.length} processed, ${enqueuedCount} enqueued`);
         }
       } catch (videoError) {
         console.error(`[Backfill Job ${jobId}] Error processing video ${ytVideo.videoId}:`, videoError);
+        
+        // Track failed video with generic error message
+        failedVideos.push({
+          videoId: ytVideo.videoId,
+          title: ytVideo.title,
+          reason: getGenericErrorMessage(videoError),
+        });
+
+        // Update failed videos list
+        await updateJobProgress(jobId, {
+          failed_videos: failedVideos,
+        });
+        
         // Continue with next video instead of failing entire job
       }
     }
@@ -138,10 +185,11 @@ export async function processBackfillJob(jobId: string): Promise<void> {
     await updateJobProgress(jobId, {
       processed_videos: processedCount,
       enqueued_videos: enqueuedCount,
+      failed_videos: failedVideos,
     });
     await updateJobStatus(jobId, "completed");
 
-    console.log(`[Backfill Job ${jobId}] Completed: ${processedCount}/${youtubeVideos.length} processed, ${enqueuedCount} enqueued`);
+    console.log(`[Backfill Job ${jobId}] Completed: ${processedCount}/${youtubeVideos.length} processed, ${enqueuedCount} enqueued, ${failedVideos.length} failed`);
   } catch (error) {
     // Mark as failed
     const errorMessage = error instanceof Error ? error.message : "Unknown error";

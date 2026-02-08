@@ -3,14 +3,27 @@
 
 FROM node:22-slim
 
-# Install system dependencies (ffmpeg, python for native modules)
+# Install system dependencies (ffmpeg, yt-dlp, python for native modules)
+# Also includes ca-certificates for HTTPS and build tools for native Node modules
 RUN apt-get update && apt-get install -y \
     ffmpeg \
     python3 \
+    python3-pip \
     make \
     g++ \
     curl \
+    ca-certificates \
     && rm -rf /var/lib/apt/lists/*
+
+# Install yt-dlp via pip
+RUN pip3 install --no-cache-dir --break-system-packages yt-dlp
+
+# Verify yt-dlp is accessible and create symlink if needed
+RUN which yt-dlp || ln -s /usr/local/bin/yt-dlp /usr/bin/yt-dlp && yt-dlp --version
+
+# Verify Node.js is accessible for yt-dlp JavaScript runtime
+# yt-dlp needs Node.js to solve YouTube's signature challenges
+RUN node --version && echo "Node.js available at: $(which node)"
 
 # Install pnpm globally
 RUN npm install -g pnpm

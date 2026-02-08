@@ -19,13 +19,14 @@ import {
   deleteArtwork,
   getEpisodes,
   getFeedUrl,
+  getFailedVideos,
 } from "../controllers/agentController.js";
 import { getRssFeed } from "../controllers/rssController.js";
 import { backfillAgent, getBackfillJobStatus, getAgentBackfillJobs } from "../controllers/backfillController.js";
 import { validateBody } from "../middlewares/validation.js";
 import { createAgentSchema, updateAgentSchema } from "../middlewares/schemas/agentSchemas.js";
 import { backfillSchema } from "../middlewares/schemas/backfillSchema.js";
-import { strictLimiter } from "../middlewares/rateLimiting.js";
+import { apiLimiter, strictLimiter } from "../middlewares/rateLimiting.js";
 import { upload, uploadImage } from "../middlewares/upload.js";
 import { requireAuth, optionalAuth } from "../middlewares/auth.middleware.js";
 
@@ -41,7 +42,7 @@ agentsRouter.post("/", requireAuth, strictLimiter, validateBody(createAgentSchem
 agentsRouter.get("/:id", requireAuth, getAgentById);
 
 /** Update agent (user-specific) */
-agentsRouter.put("/:id", requireAuth, validateBody(updateAgentSchema), updateAgent);
+agentsRouter.put("/:id", requireAuth, apiLimiter, validateBody(updateAgentSchema), updateAgent);
 
 /** Delete agent (user-specific) */
 agentsRouter.delete("/:id", requireAuth, strictLimiter, deleteAgent);
@@ -54,6 +55,9 @@ agentsRouter.get("/:id/backfill/:jobId", requireAuth, getBackfillJobStatus);
 
 /** Get recent backfill jobs for agent (user-specific) */
 agentsRouter.get("/:id/backfill", requireAuth, getAgentBackfillJobs);
+
+/** Get failed videos for an agent (user-specific) */
+agentsRouter.get("/:id/failed-videos", requireAuth, getFailedVideos);
 
 /** Manually (re-)activate agent's WebSub subscription */
 agentsRouter.post("/:id/activate", requireAuth, strictLimiter, activateAgent);

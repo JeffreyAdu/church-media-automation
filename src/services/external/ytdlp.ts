@@ -3,11 +3,46 @@
  * Downloads audio from YouTube videos using youtube-dl-exec.
  */
 
-import youtubedl from "youtube-dl-exec";
+import youtubedlBase from "youtube-dl-exec";
 import { mkdir } from "fs/promises";
 import fs from "fs";
 import path from "path";
 import os from "os";
+
+// Explicitly set binary path for yt-dlp
+// youtube-dl-exec will look for 'yt-dlp' or 'youtube-dl' in PATH
+// On Linux (Docker), yt-dlp is typically in /usr/local/bin/yt-dlp or /usr/bin/yt-dlp
+const YTDLP_PATH = process.env.YTDLP_PATH || 'yt-dlp';
+
+// Cookie file path for YouTube authentication
+const COOKIES_PATH = '/tmp/youtube-cookies.txt';
+
+// Create instance with explicit binary path
+const youtubedl = youtubedlBase.create(YTDLP_PATH);
+
+/**
+ * Initialize cookies for YouTube authentication on module load.
+ * Writes cookies from YOUTUBE_COOKIES environment variable to file.
+ * This runs automatically when the module is first imported.
+ */
+(function initializeCookies() {
+  const cookiesEnv = process.env.YOUTUBE_COOKIES;
+  
+  if (!cookiesEnv) {
+    console.log('[youtube-dl] No YOUTUBE_COOKIES env var found - running without authentication');
+    console.log('[youtube-dl] ⚠️  May hit bot detection on cloud IPs. See YOUTUBE_COOKIES_SETUP.md');
+    return;
+  }
+
+  try {
+    // Write cookies to file
+    fs.writeFileSync(COOKIES_PATH, cookiesEnv, 'utf-8');
+    console.log(`[youtube-dl] ✓ YouTube cookies initialized at ${COOKIES_PATH}`);
+  } catch (error) {
+    console.error('[youtube-dl] Failed to write cookies file:', error);
+    // Don't throw - allow app to start, downloads will just fail with bot detection
+  }
+})();
 
 export interface DownloadResult {
   audioPath: string;
@@ -38,7 +73,11 @@ export async function downloadYouTubeAudio(
     const metadataRaw = await youtubedl(youtubeUrl, {
       dumpSingleJson: true,
       noPlaylist: true,
-    });
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+      cookies: fs.existsSync(COOKIES_PATH) ? COOKIES_PATH : undefined,
+      'js-runtimes': 'node',
+      'remote-components': 'ejs:github',
+    } as any);
 
     const metadata = typeof metadataRaw === 'string' ? JSON.parse(metadataRaw) : metadataRaw;
     const title = metadata.title || "Unknown";
@@ -63,7 +102,11 @@ export async function downloadYouTubeAudio(
     const metadataRaw = await youtubedl(youtubeUrl, {
       dumpSingleJson: true,
       noPlaylist: true,
-    });
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+      cookies: fs.existsSync(COOKIES_PATH) ? COOKIES_PATH : undefined,
+      'js-runtimes': 'node',
+      'remote-components': 'ejs:github',
+    } as any);
 
     const metadata = typeof metadataRaw === 'string' ? JSON.parse(metadataRaw) : metadataRaw;
     const title = metadata.title || "Unknown";
@@ -78,7 +121,11 @@ export async function downloadYouTubeAudio(
       extractAudio: true,
       audioFormat: "mp3",
       output: outputPath,
-    });
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+      cookies: fs.existsSync(COOKIES_PATH) ? COOKIES_PATH : undefined,
+      'js-runtimes': 'node',
+      'remote-components': 'ejs:github',
+    } as any);
 
     // Verify file exists
     if (!fs.existsSync(outputPath)) {
@@ -95,6 +142,15 @@ export async function downloadYouTubeAudio(
   } catch (error: any) {
     const errorMessage = error.stderr || error.message || String(error);
     console.error(`[youtube-dl] Error:`, errorMessage);
+    console.error(`[youtube-dl] Binary path attempted:`, YTDLP_PATH);
+    console.error(`[youtube-dl] Error type:`, typeof error, error?.constructor?.name);
+    console.error(`[youtube-dl] Error keys:`, error ? Object.keys(error) : 'null');
+    console.error(`[youtube-dl] Error.code:`, error?.code);
+    console.error(`[youtube-dl] Error.path:`, error?.path);
+    console.error(`[youtube-dl] Error.spawnargs:`, error?.spawnargs);
+    console.error(`[youtube-dl] Error.stderr:`, error?.stderr);
+    console.error(`[youtube-dl] Error.stdout:`, error?.stdout);
+    console.error(`[youtube-dl] Error.message:`, error?.message);
     throw new Error(`YouTube download failed: ${errorMessage}`);
   }
 }

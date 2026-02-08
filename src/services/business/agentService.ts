@@ -19,6 +19,7 @@ import {
   type UpdateAgentInput,
 } from "../../repositories/agentRepository.js";
 import { findEpisodesByAgentId, type Episode } from "../../repositories/episodeRepository.js";
+import { getFailedVideos as getFailedVideosRepo, type Video } from "../../repositories/videoRepository.js";
 import { NotFoundError } from "../../utils/errors.js";
 import { resolveChannelId } from "../external/youtube.js";
 import { processPodcastArtwork } from "../../utils/imageProcessing.js";
@@ -365,4 +366,15 @@ export async function deleteArtwork(agentId: string): Promise<void> {
   await updateAgentRepo(agentId, {
     podcast_artwork_url: null,
   });
+}
+
+/**
+ * Gets failed videos for an agent.
+ */
+export async function getFailedVideosForAgent(agentId: string): Promise<Video[]> {
+  const agent = await findById(agentId);
+  if (!agent) {
+    throw new NotFoundError("Agent", agentId);
+  }
+  return await getFailedVideosRepo(agentId);
 }

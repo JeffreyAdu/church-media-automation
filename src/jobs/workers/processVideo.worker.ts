@@ -7,8 +7,9 @@ import "dotenv/config";
 import { Worker } from "bullmq";
 import { redis } from "../../config/redis.js";
 import { processVideoOrchestrator } from "../orchestrators/processVideoOrchestrator.js";
-import { findVideoByYouTubeId } from "../../repositories/videoRepository.js";
+import { findVideoByYouTubeId, updateVideoStatus } from "../../repositories/videoRepository.js";
 import { processBackfillJob } from "../../services/business/backfillJobService.js";
+import { getGenericErrorMessage } from "../../utils/errorMessages.js";
 
 const queueName = "processVideo";
 
@@ -53,11 +54,24 @@ async function handleJob(job: any) {
         videoId: video.id,
         youtubeVideoId,
         youtubeUrl,
+        updateProgress: async (progress: number, status: string) => {
+          await job.updateProgress({ progress, status });
+          console.log(`[worker:video] progress ${progress}% - ${status}`);
+        },
       });
 
       console.log("[worker:video] ✓ completed", job.id, "episode:", result.episodeId);
     } catch (error) {
       console.error("[worker:video] ✗ failed", job.id, error);
+      
+      // Mark video as failed with generic error message
+      const video = await findVideoByYouTubeId(agentId, youtubeVideoId);
+      if (video) {
+        const genericError = getGenericErrorMessage(error);
+        await updateVideoStatus(video.id, "failed", genericError);
+        console.log(`[worker:video] marked video ${youtubeVideoId} as failed: ${genericError}`);
+      }
+      
       throw error;
     }
   }

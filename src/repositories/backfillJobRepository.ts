@@ -5,6 +5,12 @@
 
 import { supabase } from "../config/supabase.js";
 
+export interface FailedVideo {
+  videoId: string;
+  title: string;
+  reason: string;
+}
+
 export interface BackfillJob {
   id: string;
   agent_id: string;
@@ -13,6 +19,7 @@ export interface BackfillJob {
   total_videos: number;
   processed_videos: number;
   enqueued_videos: number;
+  failed_videos: FailedVideo[];
   error: string | null;
   created_at: string;
   updated_at: string;
@@ -27,6 +34,7 @@ export interface UpdateJobProgressInput {
   total_videos?: number;
   processed_videos?: number;
   enqueued_videos?: number;
+  failed_videos?: FailedVideo[];
 }
 
 /**
@@ -114,6 +122,10 @@ export async function updateJobProgress(
 
   if (progress.enqueued_videos !== undefined) {
     updateData.enqueued_videos = progress.enqueued_videos;
+  }
+
+  if (progress.failed_videos !== undefined) {
+    updateData.failed_videos = progress.failed_videos;
   }
 
   const { data, error } = await supabase

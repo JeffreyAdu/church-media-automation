@@ -21,6 +21,7 @@ export interface ProcessVideoInput {
   videoId: string;
   youtubeVideoId: string;
   youtubeUrl: string;
+  updateProgress?: (progress: number, status: string) => Promise<void>;
 }
 
 export interface ProcessVideoResult {
@@ -34,18 +35,21 @@ export interface ProcessVideoResult {
  * assembles final episode with intro/outro, and publishes.
  */
 export async function processVideoOrchestrator(input: ProcessVideoInput): Promise<ProcessVideoResult> {
-  const { agentId, videoId, youtubeVideoId, youtubeUrl } = input;
+  const { agentId, videoId, youtubeVideoId, youtubeUrl, updateProgress } = input;
 
   // 1. Download audio from YouTube
   console.log(`[orchestrator] downloading audio for ${youtubeVideoId}`);
+  await updateProgress?.(5, "Downloading audio from YouTube...");
   const download = await downloadVideo(youtubeUrl, youtubeVideoId);
 
   // 2. Convert to WAV for VAD analysis
   console.log(`[orchestrator] converting to WAV for VAD`);
+  await updateProgress?.(15, "Converting to WAV format...");
   const wavPath = await convertToWav(download.audioPath, `${youtubeVideoId}.wav`);
 
   // 3. Run VAD to detect speech segments
   console.log(`[orchestrator] running voice activity detection`);
+  await updateProgress?.(25, "Detecting speech segments...");
   const speechSegments = await detectSpeech(wavPath);
   
   // 4. Build merged timeline mapping and find longest segment
@@ -75,6 +79,7 @@ export async function processVideoOrchestrator(input: ProcessVideoInput): Promis
 
   // 5. Extract and concatenate speech-only segments
   console.log(`[orchestrator] extracting speech-only audio`);
+  await updateProgress?.(35, "Extracting speech segments...");
   const speechOnlyFileName = `${youtubeVideoId}-speech-only.mp3`;
   const speechOnlyAudio = await extractSpeechSegments(
     download.audioPath,
@@ -84,6 +89,7 @@ export async function processVideoOrchestrator(input: ProcessVideoInput): Promis
 
   // 6. Run AI pipeline: transcribe speech-only → detect sermon → generate metadata → autopublish decision
   console.log(`[orchestrator] running AI sermon detection pipeline`);
+  await updateProgress?.(45, "Transcribing audio with AI...");
   const video = await getVideoById(videoId);
   if (!video) {
     throw new Error(`Video not found: ${videoId}`);
@@ -97,6 +103,7 @@ export async function processVideoOrchestrator(input: ProcessVideoInput): Promis
 
   // 7. Extract just the sermon portion from speech-only audio using AI-detected boundaries
   console.log(`[orchestrator] extracting AI-detected sermon segment`);
+  await updateProgress?.(65, "Extracting sermon segment...");
   const sermonOnlyFileName = `${youtubeVideoId}-sermon.mp3`;
   const sermonOnlyPath = await extractSegment(
     speechOnlyAudio.outputPath,
@@ -107,6 +114,7 @@ export async function processVideoOrchestrator(input: ProcessVideoInput): Promis
 
   // 8. Concatenate intro + sermon + outro
   console.log(`[orchestrator] building final episode with intro/outro`);
+  await updateProgress?.(75, "Assembling final episode...");
   
   // Get agent record to fetch intro/outro URLs
   const agent = await findById(agentId);
@@ -138,11 +146,13 @@ export async function processVideoOrchestrator(input: ProcessVideoInput): Promis
 
   // 9. Upload final episode to Supabase Storage
   console.log(`[orchestrator] uploading final episode to storage`);
+  await updateProgress?.(85, "Uploading to cloud storage...");
   const storagePath = `episodes/${agentId}/${finalFileName}`;
   const upload = await uploadEpisode(finalEpisode.outputPath, storagePath);
 
   // 10. Create episode record with AI-generated metadata
   console.log(`[orchestrator] creating episode record`);
+  await updateProgress?.(95, "Creating episode record...");
   const sermonDurationSec = aiResult.boundaries.sermon_end_sec - aiResult.boundaries.sermon_start_sec;
   
   const episode = await createEpisode({
@@ -200,6 +210,7 @@ export async function processVideoOrchestrator(input: ProcessVideoInput): Promis
   await unlink(finalEpisode.outputPath).catch(() => {});
 
   console.log(`[orchestrator] ✓ completed episode ${episode.id}`);
+  await updateProgress?.(100, "Processing complete!");
 
   return {
     episodeId: episode.id,
