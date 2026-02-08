@@ -34,28 +34,32 @@ export interface CreateVideoInput {
  * Returns the video record.
  */
 export async function upsertVideo(input: CreateVideoInput): Promise<Video> {
+  // Check if video already exists
+  const existing = await findVideoByYouTubeId(input.agent_id, input.youtube_video_id);
+
+  if (existing) {
+    // Video already exists - return it without modifying status
+    // This prevents re-processing of completed videos
+    return existing;
+  }
+
+  // Insert new video with "discovered" status
   const { data, error } = await supabase
     .from("videos")
-    .upsert(
-      {
-        agent_id: input.agent_id,
-        youtube_video_id: input.youtube_video_id,
-        youtube_url: input.youtube_url,
-        title: input.title || null,
-        published_at: input.published_at || null,
-        raw_payload: input.raw_payload || null,
-        status: "discovered",
-      },
-      {
-        onConflict: "agent_id,youtube_video_id",
-        ignoreDuplicates: false,
-      }
-    )
+    .insert({
+      agent_id: input.agent_id,
+      youtube_video_id: input.youtube_video_id,
+      youtube_url: input.youtube_url,
+      title: input.title || null,
+      published_at: input.published_at || null,
+      raw_payload: input.raw_payload || null,
+      status: "discovered",
+    })
     .select()
     .single();
 
   if (error) {
-    throw new Error(`Failed to upsert video: ${error.message}`);
+    throw new Error(`Failed to insert video: ${error.message}`);
   }
 
   return data;

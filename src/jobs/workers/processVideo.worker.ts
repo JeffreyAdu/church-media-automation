@@ -79,7 +79,7 @@ async function handleJob(job: any) {
 
 const worker = new Worker(queueName, handleJob, {
   connection: redis,
-  concurrency: 3, // Allow backfill-scan + 2 video jobs
+  concurrency: 5, // Allow backfill-scan + 4 video jobs
   lockDuration: 1800000, // 30 minutes
   lockRenewTime: 60000,
 });
