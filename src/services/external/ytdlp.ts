@@ -63,6 +63,17 @@ export async function downloadYouTubeAudio(
   await mkdir(tempDir, { recursive: true });
 
   const outputPath = path.join(tempDir, "audio.mp3");
+  const ytdlFile = path.join(tempDir, "audio.mp3.ytdl");
+
+  // Remove corrupt .ytdl file if it exists (from previous failed attempt)
+  if (fs.existsSync(ytdlFile)) {
+    console.log(`[youtube-dl] Removing corrupt .ytdl file: ${ytdlFile}`);
+    try {
+      fs.unlinkSync(ytdlFile);
+    } catch (err) {
+      console.warn(`[youtube-dl] Failed to remove .ytdl file:`, err);
+    }
+  }
 
   // Check if already downloaded (skip re-download on retry)
   if (fs.existsSync(outputPath)) {
@@ -157,6 +168,15 @@ export async function downloadYouTubeAudio(
     console.error(`[youtube-dl] Error.stderr:`, error?.stderr);
     console.error(`[youtube-dl] Error.stdout:`, error?.stdout);
     console.error(`[youtube-dl] Error.message:`, error?.message);
+    
+    // Cleanup temp directory on failure (especially important for disk space errors)
+    try {
+      console.log(`[youtube-dl] Cleaning up temp directory: ${tempDir}`);
+      await fs.promises.rm(tempDir, { recursive: true, force: true });
+    } catch (cleanupErr) {
+      console.warn(`[youtube-dl] Failed to cleanup temp directory:`, cleanupErr);
+    }
+    
     throw new Error(`YouTube download failed: ${errorMessage}`);
   }
 }

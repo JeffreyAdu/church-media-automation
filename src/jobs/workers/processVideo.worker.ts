@@ -10,6 +10,24 @@ import { processVideoOrchestrator } from "../orchestrators/processVideoOrchestra
 import { findVideoByYouTubeId, updateVideoStatus } from "../../repositories/videoRepository.js";
 import { processBackfillJob } from "../../services/business/backfillJobService.js";
 import { getGenericErrorMessage } from "../../utils/errorMessages.js";
+import { cleanupTempFiles, getTempDiskUsage } from "../../utils/cleanupTemp.js";
+import { publishProgress } from "../../services/business/progressStreamService.js";
+
+// Cleanup temp files on startup (remove stale downloads from crashes/OOM)
+(async () => {
+  console.log("[worker] Starting up - checking disk usage...");
+  const beforeCleanup = getTempDiskUsage();
+  console.log(`[worker] Temp disk usage: ${beforeCleanup.usedMB.toFixed(0)}MB (${beforeCleanup.files} files)`);
+
+  if (beforeCleanup.usedMB > 100 || beforeCleanup.files > 10) {
+    console.log(`[worker] Running cleanup (threshold: >100MB or >10 files)...`);
+    await cleanupTempFiles(2); // Remove files older than 2 hours
+    const afterCleanup = getTempDiskUsage();
+    console.log(`[worker] After cleanup: ${afterCleanup.usedMB.toFixed(0)}MB (${afterCleanup.files} files)`);
+  } else {
+    console.log(`[worker] Disk usage OK, skipping cleanup`);
+  }
+})();
 
 const queueName = "processVideo";
 
@@ -56,6 +74,7 @@ async function handleJob(job: any) {
         youtubeUrl,
         updateProgress: async (progress: number, status: string) => {
           await job.updateProgress({ progress, status });
+          await publishProgress(job.id!, progress, status);
           console.log(`[worker:video] progress ${progress}% - ${status}`);
         },
       });
@@ -79,15 +98,15 @@ async function handleJob(job: any) {
 
 const worker = new Worker(queueName, handleJob, {
   connection: redis,
-  concurrency: 2, // Reduced from 5 - Fly.io bandwidth limitation
-  lockDuration: 1800000, // 30 minutes
+  concurrency: 10, // Can be much higher with Groq!
+  lockDuration: 600000, // 10 minutes (Groq is fast)
   lockRenewTime: 60000,
 });
 
 console.log("[worker] Starting worker for queue:", queueName);
 console.log("[worker] Redis connection:", redis.options.host, redis.options.port);
-console.log("[worker] Concurrency:", 2, "(reduced for Fly.io bandwidth)");
-console.log("[worker] Lock duration:", "30 minutes");
+console.log("[worker] Concurrency:", 10, "(can be much higher with Groq!)");
+console.log("[worker] Lock duration:", "10 minutes");
 console.log("[worker] Waiting for jobs...");
 
 worker.on("completed", (job) => {

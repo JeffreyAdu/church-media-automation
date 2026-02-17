@@ -4,7 +4,7 @@
  * This ensures the model receives ALL content without JSON parsing overhead.
  */
 
-import { transcribeWithTimestamps } from "../external/openai/transcribeChunked.js";
+import { transcribe } from "./transcriptionService.js";
 import { runJsonAgent } from "../external/openai/runJsonAgent.js";
 import {
   SermonBoundarySchema,
@@ -21,7 +21,7 @@ import { POSITIVE_SERMON_EXAMPLES,
   NEGATIVE_NON_SERMON_EXAMPLES,
   EDGE_CASE_EXAMPLES,
 } from "./agents/autopublishExamples.js";
-import type { TranscriptResult } from "../external/openai/transcribeChunked.js";
+import type { TranscriptResult } from "../external/whisperGroq.js";
 
 export interface SermonPipelineInput {
   audioPath: string;
@@ -60,7 +60,7 @@ export async function runSermonAiStage(
   params: SermonPipelineInput
 ): Promise<SermonPipelineResult> {
   console.log("[sermonPipeline] starting transcription");
-  const transcript = await transcribeWithTimestamps(params.audioPath);
+  const transcript = await transcribe(params.audioPath);
 
   // Diagnostic logging
   const transcriptDurationMin = transcript.segments.length > 0 

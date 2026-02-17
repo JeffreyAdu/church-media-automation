@@ -1,6 +1,8 @@
 # Fly.io configuration for Church Media Automation
 app = "church-media-automation"
 primary_region = "ams"
+kill_signal = "SIGTERM"
+kill_timeout = "5m"  # Allow 5 minutes for jobs to complete before force kill
 
 [build]
 
@@ -24,20 +26,38 @@ primary_region = "ams"
     hard_limit = 250
     soft_limit = 200
 
+# Worker service configuration - keeps workers always running
+[[services]]
+  processes = ["worker"]
+  auto_stop_machines = false
+  auto_start_machines = true
+  min_machines_running = 2  # Keep both workers running
+
+  # Allow graceful shutdown for long-running jobs
+  # Reduced to 1 to prevent OOM with 7.4GB transcription memory usage
+  [services.concurrency]
+    type = "connections"
+    hard_limit = 1
+    soft_limit = 1
+
 [[vm]]
   size = "shared-cpu-2x"
   memory = "1gb"
   processes = ["app"]
 
 [[vm]]
-  size = "shared-cpu-2x"
-  memory = "2gb"
+  size = "shared-cpu-8x"
+  memory = "16gb"
   processes = ["worker"]
 
 # API Server Process
 [processes]
   app = "node dist/server.js"
   worker = "node dist/jobs/workers/processVideo.worker.js"
+
+# Automatic rollback on failed deployments
+[experimental]
+  auto_rollback = true
 
 # Environment variables (secrets - set with: fly secrets set KEY=VALUE)
 [env]

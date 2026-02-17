@@ -8,7 +8,7 @@ import { supabase } from "../config/supabase.js";
 export interface Agent {
   id: string;
   user_id: string | null; // Supabase auth user ID
-  name: string; // Church name
+  name: string; // Organization name
   youtube_channel_id: string;
   youtube_channel_url: string | null;
   status: "active" | "paused";
@@ -31,7 +31,7 @@ export interface Agent {
 
 export interface CreateAgentInput {
   user_id: string; // Supabase auth user ID
-  name: string; // Church name
+  name: string; // Organization name
   youtube_channel_id: string;
   youtube_channel_url?: string;
   rss_slug: string;

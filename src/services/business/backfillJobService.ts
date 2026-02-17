@@ -28,6 +28,10 @@ export interface BackfillJobWithProgress extends BackfillJob {
     progress: number;
     status: string;
   }>;
+  queuedVideos?: Array<{
+    videoId: string;
+    title?: string;
+  }>;
 }
 
 /**
@@ -60,42 +64,58 @@ export async function getJobStatus(jobId: string): Promise<BackfillJobWithProgre
     throw new NotFoundError("Backfill job", jobId);
   }
 
-  // Fetch active video jobs from BullMQ to get progress info
+  // Fetch active and waiting video jobs from BullMQ
   // Use timeout to prevent hanging requests
-  let activeVideos: Array<{ videoId: string; progress: number; status: string }> | undefined;
+  let activeVideos: Array<{ videoId: string; title?: string; progress: number; status: string }> | undefined;
+  let queuedVideos: Array<{ videoId: string; title?: string }> | undefined;
   
   try {
-    const activeJobs = await Promise.race([
-      queues.processVideo.getJobs(["active", "waiting"]),
+    const [activeJobs, waitingJobs] = await Promise.race([
+      Promise.all([
+        queues.processVideo.getJobs(["active"]),
+        queues.processVideo.getJobs(["waiting"])
+      ]),
       new Promise<never>((_, reject) => 
         setTimeout(() => reject(new Error("BullMQ getJobs timeout")), 5000)
       )
     ]);
     
-    activeVideos = await Promise.all(
+    // Process active jobs (currently being processed)
+    const activeList = await Promise.all(
       activeJobs
         .filter((j) => j.data?.agentId === job.agent_id && j.data?.youtubeVideoId)
         .map(async (j) => {
           const progress = (j.progress as any) || {};
           return {
             videoId: j.data.youtubeVideoId,
-            title: j.data.title, // Include title from job data
+            title: j.data.title,
             progress: progress.progress || 0,
-            status: progress.status || "Pending...",
+            status: progress.status || "Starting...",
           };
         })
     );
     
-    activeVideos = activeVideos.length > 0 ? activeVideos : undefined;
+    // Process waiting jobs (queued but not started)
+    const queuedList = waitingJobs
+      .filter((j) => j.data?.agentId === job.agent_id && j.data?.youtubeVideoId)
+      .map((j) => ({
+        videoId: j.data.youtubeVideoId,
+        title: j.data.title,
+      }));
+    
+    activeVideos = activeList.length > 0 ? activeList : undefined;
+    queuedVideos = queuedList.length > 0 ? queuedList : undefined;
   } catch (error) {
-    // Log but don't fail - return job status without active videos
-    console.error(`[backfillJob] Failed to fetch active videos for job ${jobId}:`, error);
+    // Log but don't fail - return job status without video lists
+    console.error(`[backfillJob] Failed to fetch active/queued videos for job ${jobId}:`, error);
     activeVideos = undefined;
+    queuedVideos = undefined;
   }
 
   return {
     ...job,
     activeVideos,
+    queuedVideos,
   };
 }
 

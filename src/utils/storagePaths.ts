@@ -11,11 +11,11 @@ export const StoragePaths = {
   processed: (agentId: string, episodeId: string) => 
     `processed/agents/${agentId}/episodes/${episodeId}.mp3`,
   
-  /** Church-specific intro: agents/{agentId}/intro.mp3 */
+  /** Organization-specific intro: agents/{agentId}/intro.mp3 */
   intro: (agentId: string) => 
     `intro/agents/${agentId}/intro.mp3`,
   
-  /** Church-specific outro: agents/{agentId}/outro.mp3 */
+  /** Organization-specific outro: agents/{agentId}/outro.mp3 */
   outro: (agentId: string) => 
     `outro/agents/${agentId}/outro.mp3`,
   

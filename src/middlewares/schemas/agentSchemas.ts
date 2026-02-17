@@ -9,7 +9,7 @@ import { z } from "zod";
  * Schema for creating a new agent.
  */
 export const createAgentSchema = z.object({
-  name: z.string().min(1, "Church name is required").max(255),
+  name: z.string().min(1, "Organization name is required").max(255),
   youtube_channel_url: z
     .string()
     .url("Provide a valid YouTube channel URL (or handle URL)")

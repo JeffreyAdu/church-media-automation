@@ -152,39 +152,3 @@ export async function extractAndConcatenateSpeech(
 
   return { outputPath };
 }
-
-/**
- * Compresses audio for Whisper API (stays under 25MB limit).
- * Converts to mono, 16kHz, 48kbps - optimized for speech transcription.
- * Only used for transcription; original high-quality audio preserved for final episode.
- */
-export async function compressForWhisper(
-  inputPath: string,
-  outputFileName: string
-): Promise<string> {
-  const tempDir = path.join(os.tmpdir(), "whisper-compression");
-  
-  // Ensure the directory exists
-  await mkdir(tempDir, { recursive: true });
-  
-  const outputPath = path.join(tempDir, outputFileName);
-
-  console.log("[ffmpeg] compressing audio for Whisper API (mono, 16kHz, 48kbps)");
-
-  const command = [
-    "ffmpeg",
-    "-i", inputPath,
-    "-ac", "1",           // mono
-    "-ar", "16000",       // 16kHz sample rate
-    "-b:a", "48k",        // 48kbps bitrate (speech-optimized)
-    "-c:a", "libmp3lame", // MP3 codec
-    "-y",                 // overwrite
-    outputPath,
-  ].join(" ");
-
-  await execAsync(command);
-
-  console.log("[ffmpeg] compressed audio ready for transcription");
-
-  return outputPath;
-}

@@ -10,7 +10,13 @@
     "dev": "tsx watch src/server.ts",
     "worker": "node --max-old-space-size=8192 node_modules/tsx/dist/cli.mjs watch src/jobs/workers/processVideo.worker.ts",
     "build": "tsc",
-    "start": "node dist/server.js"
+    "start": "node dist/server.js",
+    "cleanup": "tsx src/scripts/cleanupQueue.ts",
+    "script:enqueue-discovered": "tsx src/scripts/enqueueDiscoveredVideos.ts",
+    "script:clear-stuck": "tsx src/scripts/clearStuckJobs.ts",
+    "script:clear-all-jobs": "tsx src/scripts/clearAllJobs.ts",
+    "script:reset-failed-videos": "tsx src/scripts/resetFailedVideos.ts",
+    "script:delete-unprocessed-videos": "tsx src/scripts/deleteUnprocessedVideos.ts"
   },
   "dependencies": {
     "@openai/agents": "^0.4.3",
@@ -25,6 +31,7 @@
     "express-rate-limit": "^8.2.1",
     "fast-xml-parser": "^5.3.3",
     "fluent-ffmpeg": "^2.1.3",
+    "groq-sdk": "^0.37.0",
     "helmet": "^8.1.0",
     "http-errors": "^2.0.1",
     "ioredis": "^5.7.0",

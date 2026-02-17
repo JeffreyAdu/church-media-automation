@@ -15,8 +15,8 @@ RUN apt-get update && apt-get install -y \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-# Install yt-dlp and faster-whisper via pip
-RUN pip3 install --no-cache-dir --break-system-packages yt-dlp faster-whisper
+# Install yt-dlp via pip
+RUN pip3 install --no-cache-dir --break-system-packages yt-dlp
 
 # Verify yt-dlp is accessible and create symlink if needed
 RUN which yt-dlp || ln -s /usr/local/bin/yt-dlp /usr/bin/yt-dlp && yt-dlp --version
