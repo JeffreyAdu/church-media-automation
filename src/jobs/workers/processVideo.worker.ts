@@ -77,7 +77,7 @@ async function handleJob(job: any) {
         youtubeUrl,
         updateProgress: async (progress: number, status: string) => {
           await job.updateProgress({ progress, status });
-          await publishProgress(job.id!, progress, status);
+          await publishProgress(`${agentId}_${youtubeVideoId}`, progress, status);
           console.log(`[worker:video] progress ${progress}% - ${status}`);
         },
       });
