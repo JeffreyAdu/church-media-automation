@@ -1,3 +1,11 @@
+# Test output (audio/video files generated during testing)
+tests/pipeline/output/
+tests/**/output/
+*.mp3
+*.mp4
+*.wav
+*.m4a
+
 # Logs
 logs
 *.log
