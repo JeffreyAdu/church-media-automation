@@ -147,3 +147,21 @@ export async function getFailedVideos(agentId: string): Promise<Video[]> {
 
   return data || [];
 }
+
+/**
+ * Gets youtube_video_ids that are still in-flight (discovered or processing) for an agent.
+ * Used to reconstruct activeVideoIds in the SSE snapshot on reconnect.
+ */
+export async function getInFlightVideoIds(agentId: string): Promise<string[]> {
+  const { data, error } = await supabase
+    .from("videos")
+    .select("youtube_video_id")
+    .eq("agent_id", agentId)
+    .in("status", ["discovered", "processing"]);
+
+  if (error) {
+    throw new Error(`Failed to get in-flight videos: ${error.message}`);
+  }
+
+  return (data || []).map((v) => v.youtube_video_id);
+}

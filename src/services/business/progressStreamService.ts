@@ -66,6 +66,7 @@ import { Response } from "express";
 import { redis } from "../../config/redis.js";
 import { queues } from "../../config/queues.js";
 import { getAgentBackfillJobs } from "../../repositories/backfillJobRepository.js";
+import { getInFlightVideoIds } from "../../repositories/videoRepository.js";
 
 export interface ProgressUpdate {
   jobId: string;
@@ -384,12 +385,15 @@ export async function streamAgentBackfillJobs(
   res.write(`data: ${JSON.stringify({ type: "connected", agentId })}\n\n`);
 
   const jobs = await getAgentBackfillJobs(agentId, 10);
+  const activeVideoIds = await getInFlightVideoIds(agentId);
   const snapshot = jobs.map((j) => ({
     jobId: j.id,
     status: j.status,
     totalVideos: j.total_videos,
     processedVideos: j.processed_videos,
     enqueuedVideos: j.enqueued_videos,
+    failedVideos: j.failed_videos ?? [],
+    activeVideoIds,
     error: j.error ?? null,
     createdAt: j.created_at,
     updatedAt: j.updated_at,
