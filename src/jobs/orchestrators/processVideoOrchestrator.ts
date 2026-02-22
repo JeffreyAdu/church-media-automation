@@ -1,20 +1,22 @@
 /**
  * Process Video Orchestrator
  * Coordinates the complete video processing workflow:
- * VAD → AI Pipeline → Episode Assembly
+ * AI Pipeline → Episode Assembly
  */
 
 import { downloadVideo } from "../../services/business/downloadVideoService.js";
-import { convertToWav, extractSpeechSegments, extractSegment, concatenateAudioFiles } from "../../services/business/processAudioService.js";
-import { detectSpeech } from "../../services/business/detectSpeechService.js";
+import { extractSegment, concatenateAudioFiles } from "../../services/business/processAudioService.js";
 import { uploadEpisode } from "../../services/business/uploadEpisodeService.js";
+import { StoragePaths } from "../../utils/storagePaths.js";
 import { downloadFromUrl } from "../../services/business/downloadService.js";
 import { runSermonAiStage } from "../../services/business/sermonPipeline.js";
 import { createEpisode } from "../../services/business/episodeService.js";
 import { createSegmentation } from "../../services/business/segmentationService.js";
 import { getVideoById } from "../../services/business/videoService.js";
 import { findById } from "../../repositories/agentRepository.js";
-import { unlink } from "fs/promises";
+import { unlink, rm } from "fs/promises";
+import os from "os";
+import path from "path";
 
 export interface ProcessVideoInput {
   agentId: string;
@@ -31,7 +33,7 @@ export interface ProcessVideoResult {
 
 /**
  * Orchestrates the complete video processing workflow.
- * Downloads audio, runs VAD, transcribes, detects sermon with AI,
+ * Downloads audio, transcribes with AI, detects sermon boundaries,
  * assembles final episode with intro/outro, and publishes.
  */
 export async function processVideoOrchestrator(input: ProcessVideoInput): Promise<ProcessVideoResult> {
@@ -42,174 +44,76 @@ export async function processVideoOrchestrator(input: ProcessVideoInput): Promis
   await updateProgress?.(5, "Downloading audio from YouTube...");
   const download = await downloadVideo(youtubeUrl, youtubeVideoId);
 
-  // 2. Check if video is too long for VAD (CPU bottleneck)
-  const LONG_VIDEO_THRESHOLD_SEC = 30 * 60; // 30 minutes
-  const skipVAD = download.durationSeconds > LONG_VIDEO_THRESHOLD_SEC;
-  
-  let totalSpeechSec: number;
-  let speechSegments: any[] = [];
-  let segmentMapping: any[] = [];
-  let longestInMerged: any = null;
-  let speechRatio = 0;
-  let vadFailed = false;
-  let wavPath: string | null = null;
-
-  if (skipVAD) {
-    console.log(`[vad] ⏭️ SKIPPING VAD: Video is ${(download.durationSeconds/60).toFixed(1)}min (>${LONG_VIDEO_THRESHOLD_SEC/60}min threshold)`);
-    console.log(`[vad] 🔄 Using full audio for transcription (VAD is CPU-bottleneck on long videos)`);
-    totalSpeechSec = download.durationSeconds;
-    vadFailed = true; // Treat as VAD bypass
-    await updateProgress?.(25, "Skipping VAD (long video)...");
-  } else {
-    // 3. Convert to WAV for VAD analysis
-    console.log(`[orchestrator] converting to WAV for VAD`);
-    await updateProgress?.(15, "Converting to WAV format...");
-    wavPath = await convertToWav(download.audioPath, `${youtubeVideoId}.wav`);
-
-    // 4. Run VAD to detect speech segments
-    console.log(`[orchestrator] running voice activity detection`);
-    await updateProgress?.(25, "Detecting speech segments...");
-    speechSegments = await detectSpeech(wavPath);
-    
-    // 5. Build merged timeline mapping and find longest segment
-    let mergedPosition = 0;
-    segmentMapping = speechSegments.map((seg) => {
-      const mapped = {
-        originalStartSec: seg.startSec,
-        originalEndSec: seg.endSec,
-        mergedStartSec: mergedPosition,
-        mergedEndSec: mergedPosition + seg.durationSec,
-        durationSec: seg.durationSec,
-      };
-      mergedPosition += seg.durationSec;
-      return mapped;
-    });
-
-    longestInMerged = segmentMapping.length > 0
-      ? segmentMapping.reduce((longest, current) =>
-          current.durationSec > longest.durationSec ? current : longest
-        )
-      : null;
-
-    totalSpeechSec = mergedPosition;
-    speechRatio = download.durationSeconds > 0 ? totalSpeechSec / download.durationSeconds : 0;
-    
-    console.log(`[vad] 🎤 Detected ${speechSegments.length} speech segments`);
-    console.log(`[vad] 📊 Total speech: ${(totalSpeechSec/60).toFixed(1)} min of ${(download.durationSeconds/60).toFixed(1)} min (${(speechRatio*100).toFixed(1)}%)`);
-    console.log(`[vad] 🔊 Longest segment: ${longestInMerged?.durationSec.toFixed(0)}s`);
-
-    // 6. Detect VAD failure (music/noise issue)
-    const VAD_FAILURE_THRESHOLD_SEC = 300; // 5 minutes
-    vadFailed = totalSpeechSec < VAD_FAILURE_THRESHOLD_SEC;
-    
-    if (vadFailed) {
-      console.log(`[vad] ⚠️ VAD FAILURE DETECTED: Only ${(totalSpeechSec/60).toFixed(1)}min speech detected - likely music/noise issue`);
-      console.log(`[vad] 🔄 BYPASSING VAD: Using full audio for transcription instead`);
-    }
-  }
-
-  // 5. Extract and concatenate speech-only segments (or use full audio if VAD failed)
-  console.log(`[orchestrator] ${vadFailed ? 'using full audio' : 'extracting speech-only audio'}`);
-  await updateProgress?.(35, vadFailed ? "Using full audio..." : "Extracting speech segments...");
-  
-  let speechOnlyAudioPath: string;
-  let audioReferenceDuration: number;
-  
-  if (vadFailed) {
-    // Use full audio directly, bypass VAD extraction
-    speechOnlyAudioPath = download.audioPath;
-    audioReferenceDuration = download.durationSeconds;
-  } else {
-    // Normal VAD extraction
-    const speechOnlyFileName = `${youtubeVideoId}-speech-only.mp3`;
-    const speechOnlyResult = await extractSpeechSegments(
-      download.audioPath,
-      speechSegments,
-      speechOnlyFileName
-    );
-    speechOnlyAudioPath = speechOnlyResult.outputPath;
-    audioReferenceDuration = totalSpeechSec;
-  }
-
-  // 6. Run AI pipeline: transcribe speech-only → detect sermon → generate metadata → autopublish decision
+  // 2. Run AI pipeline: transcribe → detect sermon → generate metadata → autopublish decision
   console.log(`[orchestrator] running AI sermon detection pipeline`);
-  await updateProgress?.(45, "Transcribing audio with AI...");
+  await updateProgress?.(25, "Transcribing audio with AI...");
   const video = await getVideoById(videoId);
   if (!video) {
     throw new Error(`Video not found: ${videoId}`);
   }
 
   const aiResult = await runSermonAiStage({
-    audioPath: speechOnlyAudioPath,
+    audioPath: download.audioPath,
     youtubeTitle: download.title,
     serviceDateISO: video.published_at || new Date().toISOString(),
   });
 
-  // 7. Extract just the sermon portion from speech-only audio using AI-detected boundaries
-  console.log(`[orchestrator] extracting AI-detected sermon segment`);
-  await updateProgress?.(65, "Extracting sermon segment...");
-  
-  // Validate sermon boundaries (use correct duration based on whether VAD was bypassed)
-  if (aiResult.boundaries.sermon_start_sec < 0 || 
-      aiResult.boundaries.sermon_end_sec > audioReferenceDuration ||
-      aiResult.boundaries.sermon_start_sec >= aiResult.boundaries.sermon_end_sec) {
+  // 3. Validate sermon boundaries
+  if (
+    aiResult.boundaries.sermon_start_sec < 0 ||
+    aiResult.boundaries.sermon_end_sec > download.durationSeconds ||
+    aiResult.boundaries.sermon_start_sec >= aiResult.boundaries.sermon_end_sec
+  ) {
     throw new Error(
       `Invalid sermon boundaries: start=${aiResult.boundaries.sermon_start_sec}s, ` +
-      `end=${aiResult.boundaries.sermon_end_sec}s, total=${audioReferenceDuration}s (VAD ${vadFailed ? 'bypassed' : 'used'})`
+      `end=${aiResult.boundaries.sermon_end_sec}s, total=${download.durationSeconds}s`
     );
   }
-  
+
+  // 4. Extract sermon segment
+  console.log(`[orchestrator] extracting AI-detected sermon segment`);
+  await updateProgress?.(65, "Extracting sermon segment...");
   const sermonOnlyFileName = `${youtubeVideoId}-sermon.mp3`;
   const sermonOnlyPath = await extractSegment(
-    speechOnlyAudioPath,
+    download.audioPath,
     aiResult.boundaries.sermon_start_sec,
     aiResult.boundaries.sermon_end_sec,
     sermonOnlyFileName
   );
 
-  // 8. Concatenate intro + sermon + outro
+  // 5. Download intro/outro and concatenate final episode
   console.log(`[orchestrator] building final episode with intro/outro`);
   await updateProgress?.(75, "Assembling final episode...");
-  
-  // Get agent record to fetch intro/outro URLs
+
   const agent = await findById(agentId);
   if (!agent) {
     throw new Error(`Agent not found: ${agentId}`);
   }
 
-  // Download intro/outro from Supabase URLs if they exist
   let introPath: string | null = null;
   let outroPath: string | null = null;
 
   if (agent.intro_audio_url) {
-    console.log(`[orchestrator] downloading intro audio from ${agent.intro_audio_url}`);
     introPath = await downloadFromUrl(agent.intro_audio_url, `${youtubeVideoId}-intro.mp3`);
   }
-
   if (agent.outro_audio_url) {
-    console.log(`[orchestrator] downloading outro audio from ${agent.outro_audio_url}`);
     outroPath = await downloadFromUrl(agent.outro_audio_url, `${youtubeVideoId}-outro.mp3`);
   }
 
   const finalFileName = `${agentId}-${youtubeVideoId}.mp3`;
-  const finalEpisode = await concatenateAudioFiles(
-    introPath,
-    sermonOnlyPath,
-    outroPath,
-    finalFileName
-  );
+  const finalEpisode = await concatenateAudioFiles(introPath, sermonOnlyPath, outroPath, finalFileName);
 
-  // 9. Upload final episode to Supabase Storage
+  // 6. Upload to Cloudflare R2 Storage
   console.log(`[orchestrator] uploading final episode to storage`);
   await updateProgress?.(85, "Uploading to cloud storage...");
-  const storagePath = `episodes/${agentId}/${finalFileName}`;
+  const storagePath = StoragePaths.processed(agentId, youtubeVideoId);
   const upload = await uploadEpisode(finalEpisode.outputPath, storagePath);
 
-  // 10. Create episode record with AI-generated metadata
+  // 7. Create episode record
   console.log(`[orchestrator] creating episode record`);
   await updateProgress?.(95, "Creating episode record...");
   const sermonDurationSec = aiResult.boundaries.sermon_end_sec - aiResult.boundaries.sermon_start_sec;
-  
+
   const episode = await createEpisode({
     agent_id: agentId,
     video_id: video.id,
@@ -223,57 +127,27 @@ export async function processVideoOrchestrator(input: ProcessVideoInput): Promis
     published: aiResult.decision.should_autopublish,
   });
 
-  // 11. Store AI segmentation (LLM v1)
+  // 8. Store AI segmentation record
   console.log(`[orchestrator] storing AI segmentation data`);
-  
-  let vadBypassReason = '';
-  if (skipVAD) {
-    vadBypassReason = `[VAD SKIPPED - Long video (${(download.durationSeconds/60).toFixed(0)}min > ${LONG_VIDEO_THRESHOLD_SEC/60}min)] `;
-  } else if (vadFailed) {
-    vadBypassReason = `[VAD BYPASSED - Music/noise issue (${(totalSpeechSec/60).toFixed(1)}min < 5min threshold)] `;
-  }
-  
   await createSegmentation({
     video_id: video.id,
     method: "llm_v1",
     sermon_start_sec: aiResult.boundaries.sermon_start_sec,
     sermon_end_sec: aiResult.boundaries.sermon_end_sec,
     confidence: aiResult.boundaries.confidence,
-    explanation: `${vadBypassReason}AI Pipeline: ${aiResult.boundaries.explanation}. Sermon likeness: ${aiResult.decision.sermon_likeness}, Category: ${aiResult.decision.category}. Reasons: ${aiResult.decision.reasons.join("; ")}.`,
+    explanation: `AI Pipeline: ${aiResult.boundaries.explanation}. Sermon likeness: ${aiResult.decision.sermon_likeness}, Category: ${aiResult.decision.category}. Reasons: ${aiResult.decision.reasons.join("; ")}.`,
     approved: aiResult.decision.should_autopublish,
   });
 
-  // 12. Store VAD segmentation for reference (only if VAD succeeded)
-  if (!vadFailed && longestInMerged) {
-    console.log(`[orchestrator] storing VAD segmentation for reference`);
-    const confidence = Math.min(
-      speechRatio * 0.6 +
-      Math.min(longestInMerged.durationSec / 1800, 1) * 0.4,
-      1.0
-    );
-
-    await createSegmentation({
-      video_id: video.id,
-      method: "vad_v1",
-      sermon_start_sec: longestInMerged.mergedStartSec,
-      sermon_end_sec: longestInMerged.mergedEndSec,
-      confidence,
-      explanation: `VAD detected ${speechSegments.length} speech segments. Longest segment (${Math.round(longestInMerged.durationSec)}s) selected as sermon. Timestamps relative to speech-only audio.`,
-      approved: false,
-    });
-  }
-
-  // Cleanup temp files (log errors but don't fail processing)
+  // 9. Cleanup temp files
   const cleanupFiles = [
-    { path: introPath, name: 'intro' },
-    { path: outroPath, name: 'outro' },
-    { path: download.audioPath, name: 'youtube audio' },
-    { path: wavPath, name: 'WAV' },
-    { path: vadFailed ? null : speechOnlyAudioPath, name: 'speech-only' }, // Don't delete if using original audio
-    { path: sermonOnlyPath, name: 'sermon' },
-    { path: finalEpisode.outputPath, name: 'final episode' },
+    { path: introPath, name: "intro" },
+    { path: outroPath, name: "outro" },
+    { path: download.audioPath, name: "youtube audio" },
+    { path: sermonOnlyPath, name: "sermon" },
+    { path: finalEpisode.outputPath, name: "final episode" },
   ];
-  
+
   for (const file of cleanupFiles) {
     if (file.path) {
       try {
@@ -283,6 +157,13 @@ export async function processVideoOrchestrator(input: ProcessVideoInput): Promis
       }
     }
   }
+
+  // Remove the entire youtube-audio/{videoId}/ dir — catches any leftover compressed/chunk files
+  const videoTempDir = path.join(os.tmpdir(), "youtube-audio", youtubeVideoId);
+  await rm(videoTempDir, { recursive: true, force: true }).catch((err) =>
+    console.warn(`[orchestrator] Failed to remove temp dir: ${err}`)
+  );
+  console.log(`[orchestrator] ✓ Removed temp dir: ${videoTempDir}`);
 
   console.log(`[orchestrator] ✓ completed episode ${episode.id}`);
   await updateProgress?.(100, "Processing complete!");

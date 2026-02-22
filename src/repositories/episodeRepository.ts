@@ -119,10 +119,11 @@ export async function findPublishedEpisodes(agentId: string): Promise<Episode[]>
  * Get total count of episodes for a user
  */
 export async function countEpisodesByUserId(userId: string): Promise<number> {
+  // episodes don't have user_id directly — join through agents
   const { count, error } = await supabase
     .from("episodes")
-    .select("*", { count: "exact", head: true })
-    .eq("user_id", userId);
+    .select("id, agents!inner(user_id)", { count: "exact", head: true })
+    .eq("agents.user_id", userId);
 
   if (error) {
     throw new Error(`Failed to count episodes: ${error.message}`);

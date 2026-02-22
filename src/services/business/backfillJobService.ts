@@ -20,6 +20,7 @@ import { enqueueProcessVideo } from "../external/queue/enqueueProcessVideo.js";
 import { NotFoundError } from "../../utils/errors.js";
 import { queues } from "../../config/queues.js";
 import { getGenericErrorMessage } from "../../utils/errorMessages.js";
+import { redis } from "../../config/redis.js";
 
 export interface BackfillJobWithProgress extends BackfillJob {
   activeVideos?: Array<{
@@ -32,6 +33,32 @@ export interface BackfillJobWithProgress extends BackfillJob {
     videoId: string;
     title?: string;
   }>;
+}
+
+/**
+ * Publish a backfill job snapshot to SSE subscribers.
+ * Channel: agent:backfill:{agentId}
+ * Forwarded by progressStreamService as a "jobUpdate" SSE event.
+ */
+async function publishBackfillJob(
+  agentId: string,
+  partial: {
+    jobId: string;
+    status?: string;
+    totalVideos?: number;
+    processedVideos?: number;
+    enqueuedVideos?: number;
+    failedVideos?: FailedVideo[];
+    activeVideoIds?: string[];
+    error?: string | null;
+  }
+): Promise<void> {
+  const channel = `agent:backfill:${agentId}`;
+  try {
+    await redis.publish(channel, JSON.stringify({ ...partial, updatedAt: new Date().toISOString() }));
+  } catch (err) {
+    console.error(`[backfill-stream] Failed to publish to ${channel}:`, err);
+  }
 }
 
 /**
@@ -49,10 +76,22 @@ export async function createJob(agentId: string, sinceDate: Date): Promise<Backf
   }
 
   // Create the job
-  return await createBackfillJob({
+  const job = await createBackfillJob({
     agent_id: agentId,
     since_date: sinceDate,
   });
+
+  // Notify SSE subscribers immediately so the UI sees the new job
+  void publishBackfillJob(agentId, {
+    jobId: job.id,
+    status: job.status,
+    totalVideos: 0,
+    processedVideos: 0,
+    enqueuedVideos: 0,
+    error: null,
+  });
+
+  return job;
 }
 
 /**
@@ -139,6 +178,7 @@ export async function processBackfillJob(jobId: string): Promise<void> {
   try {
     // Mark as processing
     await updateJobStatus(jobId, "processing");
+    void publishBackfillJob(job.agent_id, { jobId, status: "processing" });
 
     // Get agent
     const agent = await findAgentById(job.agent_id);
@@ -155,12 +195,14 @@ export async function processBackfillJob(jobId: string): Promise<void> {
 
     // Update total count
     await updateJobProgress(jobId, { total_videos: youtubeVideos.length });
+    void publishBackfillJob(job.agent_id, { jobId, totalVideos: youtubeVideos.length });
 
     // Process videos one by one
     console.log(`[Backfill Job ${jobId}] Starting to process and enqueue videos...`);
     let processedCount = 0;
     let enqueuedCount = 0;
     const failedVideos: FailedVideo[] = [];
+    const activeVideoIds: string[] = []; // all video IDs enqueued — frontend opens per-video SSE for these
 
     for (const ytVideo of youtubeVideos) {
       try {
@@ -190,6 +232,9 @@ export async function processBackfillJob(jobId: string): Promise<void> {
 
           if (enqueueResult.enqueued) {
             enqueuedCount++;
+            activeVideoIds.push(video.youtube_video_id);
+            // Publish immediately so the frontend can open an SSE connection for this video
+            void publishBackfillJob(job.agent_id, { jobId, activeVideoIds: [...activeVideoIds] });
           }
         }
 
@@ -199,6 +244,13 @@ export async function processBackfillJob(jobId: string): Promise<void> {
             processed_videos: processedCount,
             enqueued_videos: enqueuedCount,
             failed_videos: failedVideos,
+          });
+          void publishBackfillJob(job.agent_id, {
+            jobId,
+            processedVideos: processedCount,
+            enqueuedVideos: enqueuedCount,
+            failedVideos,
+            activeVideoIds,
           });
           console.log(`[Backfill Job ${jobId}] Progress: ${processedCount}/${youtubeVideos.length} processed, ${enqueuedCount} enqueued`);
         }
@@ -228,12 +280,21 @@ export async function processBackfillJob(jobId: string): Promise<void> {
       failed_videos: failedVideos,
     });
     await updateJobStatus(jobId, "completed");
+    void publishBackfillJob(job.agent_id, {
+      jobId,
+      status: "completed",
+      processedVideos: processedCount,
+      enqueuedVideos: enqueuedCount,
+      failedVideos,
+      activeVideoIds,
+    });
 
     console.log(`[Backfill Job ${jobId}] Completed: ${processedCount}/${youtubeVideos.length} processed, ${enqueuedCount} enqueued, ${failedVideos.length} failed`);
   } catch (error) {
     // Mark as failed
     const errorMessage = error instanceof Error ? error.message : "Unknown error";
     await updateJobStatus(jobId, "failed", errorMessage);
+    void publishBackfillJob(job.agent_id, { jobId, status: "failed", error: errorMessage });
     console.error(`[Backfill Job ${jobId}] Failed:`, error);
     throw error;
   }
@@ -288,6 +349,7 @@ export async function cancelJob(jobId: string, agentId: string): Promise<void> {
 
     // Update job status to failed with cancellation message
     await updateJobStatus(jobId, "failed", "Cancelled by user");
+    void publishBackfillJob(job.agent_id, { jobId, status: "failed", error: "Cancelled by user" });
 
     console.log(`[Backfill Job ${jobId}] Cancelled successfully`);
   } catch (error) {

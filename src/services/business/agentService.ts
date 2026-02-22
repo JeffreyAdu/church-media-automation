@@ -5,7 +5,7 @@
 
 import { subscribe, unsubscribe, buildTopic } from "../external/websub.js";
 import { websubConfig } from "../../config/websub.js";
-import { uploadFileFromBuffer, deleteFile } from "../external/storage.js";
+import { uploadFile, deleteFile } from "../external/storage.js";
 import { StoragePaths } from "../../utils/storagePaths.js";
 import {
   createAgent as createAgentRepo,
@@ -230,7 +230,7 @@ export async function uploadIntro(agentId: string, buffer: Buffer): Promise<stri
 
   // Upload new intro
   const storagePath = StoragePaths.intro(agentId);
-  const upload = await uploadFileFromBuffer(buffer, storagePath, "audio/mpeg");
+  const upload = await uploadFile(buffer, storagePath, "audio/mpeg");
 
   // Update agent record with new URL
   await updateAgentRepo(agentId, {
@@ -257,7 +257,7 @@ export async function uploadOutro(agentId: string, buffer: Buffer): Promise<stri
 
   // Upload new outro
   const storagePath = StoragePaths.outro(agentId);
-  const upload = await uploadFileFromBuffer(buffer, storagePath, "audio/mpeg");
+  const upload = await uploadFile(buffer, storagePath, "audio/mpeg");
 
   // Update agent record with new URL
   await updateAgentRepo(agentId, {
@@ -335,7 +335,7 @@ export async function uploadArtwork(agentId: string, buffer: Buffer): Promise<st
 
   // Upload new artwork
   const storagePath = StoragePaths.artwork(agentId);
-  const upload = await uploadFileFromBuffer(processedBuffer, storagePath, "image/jpeg");
+  const upload = await uploadFile(processedBuffer, storagePath, "image/jpeg");
 
   // Update agent record with new URL
   await updateAgentRepo(agentId, {

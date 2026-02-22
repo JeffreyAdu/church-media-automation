@@ -22,7 +22,7 @@ import {
   getFailedVideos,
 } from "../controllers/agentController.js";
 import { getRssFeed } from "../controllers/rssController.js";
-import { backfillAgent, getBackfillJobStatus, getAgentBackfillJobs, cancelBackfillJob } from "../controllers/backfillController.js";
+import { backfillAgent, getBackfillJobStatus, getAgentBackfillJobs, cancelBackfillJob, streamBackfillJobs } from "../controllers/backfillController.js";
 import { validateBody } from "../middlewares/validation.js";
 import { createAgentSchema, updateAgentSchema } from "../middlewares/schemas/agentSchemas.js";
 import { backfillSchema } from "../middlewares/schemas/backfillSchema.js";
@@ -50,6 +50,9 @@ agentsRouter.delete("/:id", requireAuth, strictLimiter, deleteAgent);
 /** Create backfill job (user-specific) */
 agentsRouter.post("/:id/backfill", requireAuth, strictLimiter, validateBody(backfillSchema), backfillAgent);
 agentsRouter.delete("/:id/backfill/:jobId", requireAuth, cancelBackfillJob);
+
+/** SSE stream for real-time backfill job list updates (no auth — matches /progress/:jobId/stream) */
+agentsRouter.get("/:id/backfill/stream", streamBackfillJobs);
 
 /** Get backfill job status (user-specific) */
 agentsRouter.get("/:id/backfill/:jobId", requireAuth, getBackfillJobStatus);

@@ -6,8 +6,7 @@ import OpenAI from "openai";
 
 export const openaiConfig = {
   apiKey: process.env.OPENAI_API_KEY || "",
-  model: process.env.OPENAI_MODEL || "gpt-4o",
-  transcriptionModel: process.env.OPENAI_TRANSCRIPTION_MODEL || "whisper-1",
+  model: process.env.OPENAI_MODEL || "o3-mini",  /* 80% cheaper, smarter reasoning */
   temperature: 0.7,
   maxTokens: 4096,
 };

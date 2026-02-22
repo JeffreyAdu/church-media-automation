@@ -1,25 +1,22 @@
 /**
- * Storage path utilities for consistent file organization.
- * Structure: media/raw|processed|intro|outro|artwork/agents/{agentId}/...
+ * Storage path utilities for consistent R2 key organization.
+ * Structure: processed|intro|outro|artwork/agents/{agentId}/...
  */
 export const StoragePaths = {
-  /** Raw audio from YouTube download: agents/{agentId}/videos/{videoId}.m4a */
-  raw: (agentId: string, videoId: string) => 
-    `raw/agents/${agentId}/videos/${videoId}.m4a`,
-  
-  /** Final podcast audio: agents/{agentId}/episodes/{episodeId}.mp3 */
-  processed: (agentId: string, episodeId: string) => 
-    `processed/agents/${agentId}/episodes/${episodeId}.mp3`,
-  
-  /** Organization-specific intro: agents/{agentId}/intro.mp3 */
-  intro: (agentId: string) => 
+  /** Final podcast episode: processed/agents/{agentId}/episodes/{episodeKey}.mp3
+   *  episodeKey is typically the youtubeVideoId (available before DB record is created) */
+  processed: (agentId: string, episodeKey: string) =>
+    `processed/agents/${agentId}/episodes/${episodeKey}.mp3`,
+
+  /** Organization-specific intro: intro/agents/{agentId}/intro.mp3 */
+  intro: (agentId: string) =>
     `intro/agents/${agentId}/intro.mp3`,
-  
-  /** Organization-specific outro: agents/{agentId}/outro.mp3 */
-  outro: (agentId: string) => 
+
+  /** Organization-specific outro: outro/agents/{agentId}/outro.mp3 */
+  outro: (agentId: string) =>
     `outro/agents/${agentId}/outro.mp3`,
-  
-  /** Podcast artwork: agents/{agentId}/cover.jpg */
-  artwork: (agentId: string) => 
+
+  /** Podcast artwork: artwork/agents/{agentId}/cover.jpg */
+  artwork: (agentId: string) =>
     `artwork/agents/${agentId}/cover.jpg`,
 } as const;

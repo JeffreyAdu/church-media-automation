@@ -14,6 +14,13 @@ export const PUBLIC_BASE_URL = process.env.PUBLIC_BASE_URL;
 export const SUPABASE_URL = getRequiredEnv("SUPABASE_URL");
 export const SUPABASE_SERVICE_ROLE_KEY = getRequiredEnv("SUPABASE_SERVICE_ROLE_KEY");
 
+/** Cloudflare R2 configuration */
+export const CLOUDFLARE_ACCOUNT_ID = getRequiredEnv("CLOUDFLARE_ACCOUNT_ID");
+export const R2_ACCESS_KEY_ID = getRequiredEnv("R2_ACCESS_KEY_ID");
+export const R2_SECRET_ACCESS_KEY = getRequiredEnv("R2_SECRET_ACCESS_KEY");
+export const R2_BUCKET_NAME = process.env.R2_BUCKET_NAME ?? "media";
+export const R2_PUBLIC_URL = getRequiredEnv("R2_PUBLIC_URL");
+
 /** WebSub configuration */
 export const WEBSUB_HUB_URL = getRequiredEnv("WEBSUB_HUB_URL");
 export const WEBSUB_CALLBACK_PATH = getRequiredEnv("WEBSUB_CALLBACK_PATH");

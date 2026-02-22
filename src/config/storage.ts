@@ -1,39 +1,11 @@
 /**
- * Storage Setup
- * Handles storage bucket creation and verification.
+ * Storage Initialization
+ * R2 buckets are created via the Cloudflare dashboard — no programmatic setup needed.
+ * This function exists as a startup hook for logging/verification.
  */
 
-import { supabase, MEDIA_BUCKET } from "./supabase.js";
+import { R2_BUCKET, R2_PUBLIC_URL } from "./r2.js";
 
-/**
- * Creates a storage bucket if it doesn't already exist.
- * Idempotent operation - safe to call multiple times.
- */
-async function ensureBucket(bucketName: string, isPublic = false): Promise<void> {
-  const { data: buckets } = await supabase.storage.listBuckets();
-
-  const exists = buckets?.some((bucket: { name: string }) => bucket.name === bucketName);
-
-  if (!exists) {
-    const { error } = await supabase.storage.createBucket(bucketName, {
-      public: isPublic,
-    });
-
-    if (error) {
-      throw new Error(`Failed to create bucket ${bucketName}: ${error.message}`);
-    }
-
-    console.log(`✓ Created storage bucket: ${bucketName}`);
-  } else {
-    console.log(`✓ Storage bucket exists: ${bucketName}`);
-  }
-}
-
-/**
- * Ensures required storage buckets exist.
- */
 export async function ensureStorageBuckets(): Promise<void> {
-  // Create single media bucket with public access for processed audio and artwork
-  // Raw audio files are private by default through RLS policies
-  await ensureBucket(MEDIA_BUCKET, true);
+  console.log(`✓ Storage: Cloudflare R2 bucket "${R2_BUCKET}" (${R2_PUBLIC_URL})`);
 }

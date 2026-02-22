@@ -1,18 +1,23 @@
 /**
  * Upload Episode Service
- * Business service wrapper for episode file uploads.
+ * Reads the local audio file, determines content type, and delegates to storage.
  */
 
-import { uploadAudioFile } from "../external/storage.js";
+import { readFile } from "fs/promises";
+import path from "path";
+import { uploadFile } from "../external/storage.js";
 
-export interface UploadResult {
-  publicUrl: string;
-  sizeBytes: number;
+export type { UploadResult } from "../external/storage.js";
+
+function audioContentType(filePath: string): string {
+  return path.extname(filePath) === ".m4a" ? "audio/mp4" : "audio/mpeg";
 }
 
 /**
- * Uploads an audio file to storage.
+ * Reads a local audio file and uploads it to storage.
+ * upsert=false — episode files should never silently overwrite an existing upload.
  */
-export async function uploadEpisode(filePath: string, storagePath: string): Promise<UploadResult> {
-  return await uploadAudioFile(filePath, storagePath);
+export async function uploadEpisode(filePath: string, storagePath: string) {
+  const buffer = await readFile(filePath);
+  return uploadFile(buffer, storagePath, audioContentType(filePath), false);
 }

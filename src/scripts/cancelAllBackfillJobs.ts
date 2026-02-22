@@ -4,7 +4,7 @@
  */
 
 import "dotenv/config";
-import { supabase } from "../config/database.js";
+import { supabase } from "../config/supabase.js";
 
 async function cancelAllBackfillJobs() {
   console.log("Cancelling all active backfill jobs...");

@@ -88,3 +88,59 @@ Episodes (12)
 - RSS feed regenerates automatically when published status changes
 - Consider adding "bulk publish" for multiple drafts
 - Email notification option for new drafts?
+
+---
+
+## Improved Import Historical Videos Flow (Not Implemented Yet)
+
+### Current State
+- User clicks "Import Historical Videos" and picks a single cutoff date
+- All videos after that date are immediately queued for processing — no preview, no selection
+
+### Proposed Flow
+
+#### Step 1 — Date Range Selection
+Replace the single date picker with a **From → To** date range picker inside the existing `BackfillDialog`.
+
+#### Step 2 — Video Preview Screen
+After the user confirms the range, call a new preview endpoint that fetches YouTube video metadata for the channel within that range *without* triggering any processing.
+
+Display results as a **compact list** (thumbnail + title + publish date, one row per video) with:
+- "Select All / Deselect All" toggle
+- Per-row checkboxes
+- Videos already imported shown as grayed out and pre-unchecked (excluded by default)
+- Confirm button reads "Import X videos"
+
+#### Step 3 — Targeted Import
+POST only the selected video IDs to the backfill endpoint instead of a date range, so only chosen videos are enqueued.
+
+### Backend Changes Needed
+
+**New preview endpoint:**
+```
+GET /agents/:id/backfill/preview?from=YYYY-MM-DD&to=YYYY-MM-DD
+Returns: [{ youtubeVideoId, title, thumbnail, publishedAt, alreadyImported }]
+```
+- Hits the YouTube Data API (playlist items or search) for the agent's channel
+- Cross-references existing episodes in DB to flag `alreadyImported`
+- No BullMQ jobs created — read-only
+
+**Updated import endpoint:**
+```
+POST /agents/:id/backfill
+Body: { videoIds: string[] }   // replaces current { date: string }
+```
+- Accepts an explicit list of video IDs instead of a cutoff date
+- Existing date-based logic becomes an internal utility used by the preview → select flow
+
+### Frontend Changes Needed
+- `BackfillDialog` becomes a 2-step stepper: Date Range → Review & Select
+- New `agentsApi.previewBackfill(id, from, to)` call
+- New `agentsApi.startBackfillByIds(id, videoIds)` call (or update existing `startBackfill`)
+- Loading/empty states for the preview list
+
+### Notes
+- Typical use case is catching up on a handful of missed videos, so lists of 5–30 are most common
+- For large ranges (50+ videos) the compact list + Select All handles bulk well
+- Pagination on the preview endpoint if result count exceeds ~100
+- YouTube API quota usage increases slightly per preview call — cache preview results per (agentId, from, to) for 10 minutes

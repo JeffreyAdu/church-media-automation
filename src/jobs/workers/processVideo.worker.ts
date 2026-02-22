@@ -13,21 +13,24 @@ import { getGenericErrorMessage } from "../../utils/errorMessages.js";
 import { cleanupTempFiles, getTempDiskUsage } from "../../utils/cleanupTemp.js";
 import { publishProgress } from "../../services/business/progressStreamService.js";
 
-// Cleanup temp files on startup (remove stale downloads from crashes/OOM)
-(async () => {
-  console.log("[worker] Starting up - checking disk usage...");
-  const beforeCleanup = getTempDiskUsage();
-  console.log(`[worker] Temp disk usage: ${beforeCleanup.usedMB.toFixed(0)}MB (${beforeCleanup.files} files)`);
-
-  if (beforeCleanup.usedMB > 100 || beforeCleanup.files > 10) {
-    console.log(`[worker] Running cleanup (threshold: >100MB or >10 files)...`);
-    await cleanupTempFiles(2); // Remove files older than 2 hours
-    const afterCleanup = getTempDiskUsage();
-    console.log(`[worker] After cleanup: ${afterCleanup.usedMB.toFixed(0)}MB (${afterCleanup.files} files)`);
+async function runTempCleanup(label: string) {
+  const before = getTempDiskUsage();
+  if (before.usedMB > 100 || before.files > 10) {
+    console.log(`[worker] [${label}] Temp usage: ${before.usedMB.toFixed(0)}MB (${before.files} files) — cleaning up...`);
+    await cleanupTempFiles(1); // Remove files older than 1 hour (jobs finish in <5min)
+    const after = getTempDiskUsage();
+    console.log(`[worker] [${label}] After cleanup: ${after.usedMB.toFixed(0)}MB (${after.files} files)`);
   } else {
-    console.log(`[worker] Disk usage OK, skipping cleanup`);
+    console.log(`[worker] [${label}] Temp usage OK: ${before.usedMB.toFixed(0)}MB (${before.files} files)`);
   }
-})();
+}
+
+// Cleanup on startup (catches stale files from crashes/OOM/prev runs)
+runTempCleanup("startup");
+
+// Periodic cleanup every 30 minutes — worker may run for days without restarting
+const CLEANUP_INTERVAL_MS = 30 * 60 * 1000; // 30 minutes
+setInterval(() => runTempCleanup("periodic"), CLEANUP_INTERVAL_MS).unref();
 
 const queueName = "processVideo";
 

@@ -61,9 +61,11 @@
  * - **Scalable** - 100 concurrent streams = 100 Redis subscriptions (lightweight)
  */
 
+import { on } from "events";
 import { Response } from "express";
 import { redis } from "../../config/redis.js";
 import { queues } from "../../config/queues.js";
+import { getAgentBackfillJobs } from "../../repositories/backfillJobRepository.js";
 
 export interface ProgressUpdate {
   jobId: string;
@@ -201,73 +203,26 @@ export async function publishProgress(
  * ```
  */
 async function* subscribeToProgress(jobId: string): AsyncGenerator<ProgressUpdate> {
-  // Create separate Redis connection for subscription
-  // (pub/sub requires dedicated connection)
   const subscriber = redis.duplicate();
-  
   const channel = `job:progress:${jobId}`;
-  
+  const ac = new AbortController();
+
   try {
     await subscriber.subscribe(channel);
     console.log(`[progress-stream] Subscribed to ${channel}`);
-    
-    // Queue to buffer messages
-    const messageQueue: ProgressUpdate[] = [];
-    let resolveNext: ((value: IteratorResult<ProgressUpdate>) => void) | null = null;
-    let isDone = false;
 
-    // Handle incoming messages
-    subscriber.on("message", (ch: string, message: string) => {
-      if (ch === channel) {
-        try {
-          const update: ProgressUpdate = JSON.parse(message);
-          
-          // If there's a pending yield, resolve it immediately
-          if (resolveNext) {
-            resolveNext({ value: update, done: false });
-            resolveNext = null;
-          } else {
-            // Otherwise buffer the message
-            messageQueue.push(update);
-          }
-          
-          // Check if job is complete
-          if (update.progress >= 100 || update.status === "completed" || update.status === "failed") {
-            isDone = true;
-          }
-        } catch (error) {
-          console.error("[progress-stream] Failed to parse message:", error);
-        }
-      }
-    });
+    // events.on() turns any EventEmitter into an async iterable.
+    // It buffers messages internally so none are lost between yields.
+    for await (const [, message] of on(subscriber, "message", { signal: ac.signal })) {
+      const update: ProgressUpdate = JSON.parse(message);
+      yield update;
 
-    // Generator loop
-    while (!isDone || messageQueue.length > 0) {
-      // If we have buffered messages, yield them
-      if (messageQueue.length > 0) {
-        const update = messageQueue.shift()!;
-        yield update;
-        continue;
-      }
-
-      // If done and no more messages, exit
-      if (isDone) {
+      if (update.progress >= 100 || update.status === "completed" || update.status === "failed") {
         break;
       }
-
-      // Wait for next message
-      await new Promise<ProgressUpdate>((resolve) => {
-        resolveNext = (result) => {
-          if (!result.done) {
-            resolve(result.value);
-          }
-        };
-      }).catch(() => {
-        // Handle promise rejection
-        isDone = true;
-      });
     }
   } finally {
+    ac.abort(); // stop the events.on() iterator
     console.log(`[progress-stream] Unsubscribing from ${channel}`);
     await subscriber.unsubscribe(channel);
     subscriber.disconnect();
@@ -367,10 +322,9 @@ export async function streamJobProgress(jobId: string, res: Response): Promise<v
     return;
   }
 
-  // Send initial job state if available
+  // Send initial job state if available (stored as { progress, status } by worker)
   if (job.progress) {
-    const progressData = typeof job.progress === "object" ? job.progress : { progress: job.progress };
-    res.write(`data: ${JSON.stringify({ type: "progress", ...progressData })}\n\n`);
+    res.write(`data: ${JSON.stringify({ type: "progress", ...(job.progress as object) })}\n\n`);
   }
 
   // Subscribe to real-time updates
@@ -393,5 +347,62 @@ export async function streamJobProgress(jobId: string, res: Response): Promise<v
       console.log(`[sse] Job ${jobId} completed, closing connection`);
       break;
     }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Agent-level backfill job list stream
+// Channel: agent:backfill:{agentId}
+// Published by backfillJobService on every job state change.
+// Messages: connected | snapshot | jobUpdate
+// ---------------------------------------------------------------------------
+
+async function* subscribeToBackfillChannel(
+  agentId: string,
+  signal: AbortSignal
+): AsyncGenerator<string> {
+  const subscriber = redis.duplicate();
+  const channel = `agent:backfill:${agentId}`;
+  try {
+    await subscriber.subscribe(channel);
+    console.log(`[sse] Subscribed to ${channel}`);
+    for await (const [, message] of on(subscriber, "message", { signal })) {
+      yield message as string;
+    }
+  } finally {
+    console.log(`[sse] Unsubscribing from ${channel}`);
+    try { await subscriber.unsubscribe(channel); } catch (_) { /* ignore */ }
+    subscriber.disconnect();
+  }
+}
+
+export async function streamAgentBackfillJobs(
+  agentId: string,
+  res: Response,
+  signal: AbortSignal
+): Promise<void> {
+  res.write(`data: ${JSON.stringify({ type: "connected", agentId })}\n\n`);
+
+  const jobs = await getAgentBackfillJobs(agentId, 10);
+  const snapshot = jobs.map((j) => ({
+    jobId: j.id,
+    status: j.status,
+    totalVideos: j.total_videos,
+    processedVideos: j.processed_videos,
+    enqueuedVideos: j.enqueued_videos,
+    error: j.error ?? null,
+    createdAt: j.created_at,
+    updatedAt: j.updated_at,
+  }));
+  res.write(`data: ${JSON.stringify({ type: "snapshot", jobs: snapshot })}\n\n`);
+
+  try {
+    for await (const raw of subscribeToBackfillChannel(agentId, signal)) {
+      const job = JSON.parse(raw);
+      res.write(`data: ${JSON.stringify({ type: "jobUpdate", job })}\n\n`);
+    }
+  } catch (err: any) {
+    if (err?.code !== "ABORT_ERR") throw err;
+    // ABORT_ERR = client disconnected = normal exit
   }
 }

@@ -1,7 +1,8 @@
 /**
  * Media Transcription Service
- * Quality-first approach: Always use 64kbps speech-optimized compression
- * Strategy: Compress at 64kbps → If still >95MB → Smart chunking
+ * Compress to 64kbps MP3 16kHz mono → route by size:
+ *   ≤24MB → direct upload to Groq
+ *   >24MB → chunk into ≤24MB pieces, transcribe each, merge
  */
 
 import { stat, unlink } from 'fs/promises';
@@ -10,7 +11,7 @@ import { compressForStt, getAudioDuration } from '../../utils/audioCompression.j
 import { splitIntoChunks } from '../../utils/audioChunking.js';
 import type { TranscriptResult, TranscriptSegment } from '../external/whisperGroq.js';
 
-const TARGET_SIZE_MB = 95; // Groq Developer tier: 100MB limit (stay safely under)
+const CHUNK_THRESHOLD_MB = 24; // Groq hard limit is 25MB — chunk anything above this
 
 /**
  * Merge transcription results from multiple chunks
@@ -71,42 +72,36 @@ export async function transcribe(audioPath: string): Promise<TranscriptResult> {
       `${durationMinutes.toFixed(1)}min duration`
     );
     
-    // Step 1: Always compress for STT (64kbps speech-optimized with filters)
+    // Step 1: Compress to 64kbps MP3 16kHz mono
+    // Typically reduces 174min service from ~120MB to ~79MB
     const compressedPath = await compressForStt(audioPath);
     cleanupPaths.push(compressedPath);
-    
+
     const compressedStats = await stat(compressedPath);
     const compressedSizeMB = compressedStats.size / (1024 * 1024);
-    
-    // Step 2: Check if compressed file fits Groq's limit
-    if (compressedSizeMB <= TARGET_SIZE_MB) {
-      console.log(
-        `[transcribe] ✓ Compressed file is ${compressedSizeMB.toFixed(2)}MB ` +
-        `- transcribing as single file`
-      );
-      
+
+    console.log(`[transcribe] ${originalSizeMB.toFixed(2)}MB → ${compressedSizeMB.toFixed(2)}MB MP3`);
+
+    // Step 2: Route by size — transcribeWithGroq handles direct vs URL internally
+    if (compressedSizeMB <= CHUNK_THRESHOLD_MB) {
       return await transcribeWithGroq(compressedPath);
     }
-    
-    // Step 3: File still too large → Use chunking strategy
+
+    // Step 3: File >95MB even after compression (sermon >6hrs) → chunk original, transcribe each
     console.log(
-      `[transcribe] Compressed file is ${compressedSizeMB.toFixed(2)}MB ` +
-      `(exceeds ${TARGET_SIZE_MB}MB) - using chunking strategy`
+      `[transcribe] Compressed MP3 is ${compressedSizeMB.toFixed(2)}MB (exceeds ${CHUNK_THRESHOLD_MB}MB) — chunking`
     );
-    
+
     const chunks = await splitIntoChunks(audioPath, duration);
     cleanupPaths.push(...chunks);
-    
-    // Step 4: Transcribe each chunk
+
     const chunkResults: TranscriptResult[] = [];
-    
     for (const [index, chunkPath] of chunks.entries()) {
       console.log(`[transcribe] Transcribing chunk ${index + 1}/${chunks.length}...`);
       const result = await transcribeWithGroq(chunkPath);
       chunkResults.push(result);
     }
-    
-    // Step 5: Merge all chunks into single transcript
+
     return mergeTranscripts(chunkResults);
     
   } finally {

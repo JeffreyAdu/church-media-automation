@@ -1,11 +1,12 @@
 /**
- * Storage Upload Service
- * Handles uploading processed audio to Supabase Storage.
+ * Storage External Client — Cloudflare R2
+ * Thin wrapper around the AWS S3-compatible R2 SDK.
+ * No business logic, no file I/O — accepts raw buffers only.
+ * Supabase is used exclusively for database operations.
  */
 
-import { supabase, MEDIA_BUCKET } from "../../config/supabase.js";
-import { readFile, stat } from "fs/promises";
-import path from "path";
+import { PutObjectCommand, DeleteObjectCommand, HeadObjectCommand } from "@aws-sdk/client-s3";
+import { r2Client, R2_BUCKET, R2_PUBLIC_URL } from "../../config/r2.js";
 
 export interface UploadResult {
   publicUrl: string;
@@ -13,78 +14,43 @@ export interface UploadResult {
 }
 
 /**
- * Uploads audio file to Supabase Storage.
- * Returns public URL and file size.
+ * Upload a buffer to R2 at the given storage path.
+ * upsert=false throws if the object already exists (used for episode uploads).
+ * upsert=true (default) overwrites silently (used for artwork, intro, outro).
  */
-export async function uploadAudioFile(
-  filePath: string,
-  storagePath: string
-): Promise<UploadResult> {
-  const fileBuffer = await readFile(filePath);
-  const fileStats = await stat(filePath);
-  const ext = path.extname(filePath);
-  const contentType = ext === ".m4a" ? "audio/mp4" : "audio/mpeg";
-
-  const { error } = await supabase.storage
-    .from(MEDIA_BUCKET)
-    .upload(storagePath, fileBuffer, {
-      contentType,
-      upsert: false,
-    });
-
-  if (error) {
-    throw new Error(`Failed to upload audio: ${error.message}`);
-  }
-
-  const { data: publicUrlData } = supabase.storage
-    .from(MEDIA_BUCKET)
-    .getPublicUrl(storagePath);
-
-  return {
-    publicUrl: publicUrlData.publicUrl,
-    sizeBytes: fileStats.size,
-  };
-}
-
-/**
- * Uploads a file from a buffer to Supabase Storage.
- * Returns public URL and file size.
- */
-export async function uploadFileFromBuffer(
+export async function uploadFile(
   buffer: Buffer,
   storagePath: string,
-  contentType: string
+  contentType: string,
+  upsert = true
 ): Promise<UploadResult> {
-  const { error } = await supabase.storage
-    .from(MEDIA_BUCKET)
-    .upload(storagePath, buffer, {
-      contentType,
-      upsert: true, // Allow overwriting existing files
-    });
-
-  if (error) {
-    throw new Error(`Failed to upload file: ${error.message}`);
+  if (!upsert) {
+    // Check for existing object — PutObject always overwrites on R2/S3
+    const exists = await r2Client
+      .send(new HeadObjectCommand({ Bucket: R2_BUCKET, Key: storagePath }))
+      .then(() => true)
+      .catch(() => false);
+    if (exists) throw new Error(`Storage conflict: object already exists at ${storagePath}`);
   }
 
-  const { data: publicUrlData } = supabase.storage
-    .from(MEDIA_BUCKET)
-    .getPublicUrl(storagePath);
+  await r2Client.send(
+    new PutObjectCommand({
+      Bucket: R2_BUCKET,
+      Key: storagePath,
+      Body: buffer,
+      ContentType: contentType,
+    })
+  );
 
   return {
-    publicUrl: publicUrlData.publicUrl,
+    publicUrl: `${R2_PUBLIC_URL}/${storagePath}`,
     sizeBytes: buffer.length,
   };
 }
 
 /**
- * Deletes a file from Supabase Storage.
+ * Delete a file from R2.
  */
 export async function deleteFile(storagePath: string): Promise<void> {
-  const { error } = await supabase.storage
-    .from(MEDIA_BUCKET)
-    .remove([storagePath]);
-
-  if (error) {
-    throw new Error(`Failed to delete file: ${error.message}`);
-  }
+  await r2Client.send(new DeleteObjectCommand({ Bucket: R2_BUCKET, Key: storagePath }));
 }

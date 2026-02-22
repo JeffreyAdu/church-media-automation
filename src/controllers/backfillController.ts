@@ -6,6 +6,7 @@
 import { Request, Response, NextFunction } from "express";
 import { createJob, getJobStatus, getAgentJobs, cancelJob } from "../services/business/backfillJobService.js";
 import { enqueueBackfillJob } from "../services/external/queue/enqueueBackfillJob.js";
+import { streamAgentBackfillJobs } from "../services/business/progressStreamService.js";
 
 /**
  * POST /agents/:id/backfill
@@ -125,5 +126,40 @@ export async function cancelBackfillJob(
     });
   } catch (error) {
     next(error);
+  }
+}
+
+/**
+ * GET /agents/:id/backfill/stream
+ * SSE stream — pushes backfill job list updates in real-time.
+ * Sends an initial snapshot then forwards Redis pub/sub updates until client disconnects.
+ * No auth required (matches existing /progress/:jobId/stream convention).
+ */
+export async function streamBackfillJobs(
+  req: Request<{ id: string }>,
+  res: Response
+): Promise<void> {
+  const { id: agentId } = req.params;
+
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Connection", "keep-alive");
+  res.setHeader("X-Accel-Buffering", "no");
+  res.flushHeaders();
+
+  console.log(`[sse] Client connected to backfill stream for agent ${agentId}`);
+
+  const ac = new AbortController();
+  req.on("close", () => {
+    console.log(`[sse] Client disconnected from backfill stream for agent ${agentId}`);
+    ac.abort();
+  });
+
+  try {
+    await streamAgentBackfillJobs(agentId, res, ac.signal);
+  } catch (error) {
+    console.error(`[sse] Error in backfill stream for agent ${agentId}:`, error);
+    res.write(`data: ${JSON.stringify({ type: "error", message: "Stream error" })}\n\n`);
+    res.end();
   }
 }
